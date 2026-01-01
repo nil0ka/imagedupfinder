@@ -60,7 +60,6 @@ func (s *Storage) init() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
-	CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash);
 	CREATE INDEX IF NOT EXISTS idx_images_group_id ON images(group_id);
 	CREATE INDEX IF NOT EXISTS idx_images_path ON images(path);
 
@@ -77,6 +76,39 @@ func (s *Storage) init() error {
 	_, err := s.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Run migrations for existing databases
+	if err := s.migrate(); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+// migrate handles schema migrations for existing databases
+func (s *Storage) migrate() error {
+	// Check if file_hash column exists
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('images') WHERE name='file_hash'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	// Add file_hash column if it doesn't exist
+	if count == 0 {
+		_, err = s.db.Exec(`ALTER TABLE images ADD COLUMN file_hash TEXT DEFAULT ''`)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Create index on file_hash (will be no-op if already exists)
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash)`)
+	if err != nil {
+		return err
 	}
 
 	return nil
