@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build all platforms
+        run: make cross
+
+      - name: Create checksums
+        run: |
+          cd bin
+          sha256sum * > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            bin/imagedupfinder_linux_amd64
+            bin/imagedupfinder_linux_arm64
+            bin/imagedupfinder_darwin_amd64
+            bin/imagedupfinder_darwin_arm64
+            bin/imagedupfinder_windows_amd64.exe
+            bin/checksums.txt
+          generate_release_notes: true
