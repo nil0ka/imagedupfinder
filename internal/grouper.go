@@ -11,7 +11,7 @@ type Grouper struct {
 
 // NewGrouper creates a new Grouper
 func NewGrouper(threshold int) *Grouper {
-	if threshold <= 0 {
+	if threshold < 0 {
 		threshold = 10 // Default threshold
 	}
 	return &Grouper{threshold: threshold}
