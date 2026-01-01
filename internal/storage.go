@@ -47,6 +47,7 @@ func (s *Storage) init() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		path TEXT UNIQUE NOT NULL,
 		hash INTEGER NOT NULL,
+		file_hash TEXT DEFAULT '',
 		width INTEGER NOT NULL,
 		height INTEGER NOT NULL,
 		format TEXT NOT NULL,
@@ -59,6 +60,7 @@ func (s *Storage) init() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_images_hash ON images(hash);
+	CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash);
 	CREATE INDEX IF NOT EXISTS idx_images_group_id ON images(group_id);
 	CREATE INDEX IF NOT EXISTS idx_images_path ON images(path);
 
@@ -94,8 +96,8 @@ func (s *Storage) SaveImages(images []*ImageInfo) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO images (path, hash, width, height, format, file_size, mod_time, has_exif, score, group_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO images (path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -112,6 +114,7 @@ func (s *Storage) SaveImages(images []*ImageInfo) error {
 		_, err := stmt.Exec(
 			img.Path,
 			hashInt,
+			img.FileHash,
 			img.Width,
 			img.Height,
 			img.Format,
@@ -132,7 +135,7 @@ func (s *Storage) SaveImages(images []*ImageInfo) error {
 // GetAllImages returns all stored images
 func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
 	rows, err := s.db.Query(`
-		SELECT id, path, hash, width, height, format, file_size, mod_time, has_exif, score, group_id
+		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
 		FROM images
 		ORDER BY path
 	`)
@@ -147,10 +150,12 @@ func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
 		var modTime string
 		var hashInt int64
 		var hasExifInt int
+		var fileHash sql.NullString
 		err := rows.Scan(
 			&img.ID,
 			&img.Path,
 			&hashInt,
+			&fileHash,
 			&img.Width,
 			&img.Height,
 			&img.Format,
@@ -164,6 +169,7 @@ func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		img.Hash = uint64(hashInt)
+		img.FileHash = fileHash.String
 		img.HasExif = hasExifInt == 1
 		img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
 		images = append(images, img)
@@ -207,7 +213,7 @@ func (s *Storage) UpdateGroups(groups []*DuplicateGroup) error {
 // GetImagesByGroupID returns images in a specific group
 func (s *Storage) GetImagesByGroupID(groupID int) ([]*ImageInfo, error) {
 	rows, err := s.db.Query(`
-		SELECT id, path, hash, width, height, format, file_size, mod_time, has_exif, score, group_id
+		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
 		FROM images
 		WHERE group_id = ?
 		ORDER BY score DESC
@@ -223,10 +229,12 @@ func (s *Storage) GetImagesByGroupID(groupID int) ([]*ImageInfo, error) {
 		var modTime string
 		var hashInt int64
 		var hasExifInt int
+		var fileHash sql.NullString
 		err := rows.Scan(
 			&img.ID,
 			&img.Path,
 			&hashInt,
+			&fileHash,
 			&img.Width,
 			&img.Height,
 			&img.Format,
@@ -240,6 +248,7 @@ func (s *Storage) GetImagesByGroupID(groupID int) ([]*ImageInfo, error) {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		img.Hash = uint64(hashInt)
+		img.FileHash = fileHash.String
 		img.HasExif = hasExifInt == 1
 		img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
 		images = append(images, img)

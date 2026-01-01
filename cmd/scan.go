@@ -11,6 +11,8 @@ import (
 	"imagedupfinder/internal"
 )
 
+var exactMode bool
+
 var scanCmd = &cobra.Command{
 	Use:   "scan <folder>",
 	Short: "Scan a folder for duplicate images",
@@ -18,19 +20,21 @@ var scanCmd = &cobra.Command{
 
 The scan will:
 1. Find all supported images (jpg, png, gif, webp, etc.)
-2. Compute perceptual hashes for each image
-3. Group similar images based on hash distance
+2. Compute perceptual hashes for each image (or file hashes with --exact)
+3. Group similar images based on hash distance (or exact match with --exact)
 4. Store results in the database for later use
 
 Example:
   imagedupfinder scan ./photos
-  imagedupfinder scan /path/to/images --threshold 5`,
+  imagedupfinder scan /path/to/images --threshold 5
+  imagedupfinder scan ./photos --exact  # Find only byte-identical duplicates`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScan,
 }
 
 func init() {
 	rootCmd.AddCommand(scanCmd)
+	scanCmd.Flags().BoolVar(&exactMode, "exact", false, "Use exact file hash matching instead of perceptual hashing")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -52,7 +56,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Scanning: %s\n", absFolder)
-	fmt.Printf("Threshold: %d (Hamming distance)\n", threshold)
+	if exactMode {
+		fmt.Println("Mode: Exact matching (SHA256)")
+	} else {
+		fmt.Printf("Mode: Perceptual hashing (threshold: %d)\n", threshold)
+	}
 	fmt.Printf("Workers: %d\n\n", workers)
 
 	// Initialize storage
@@ -98,6 +106,17 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Compute file hashes if in exact mode
+	if exactMode {
+		fmt.Println("Computing file hashes...")
+		for _, img := range images {
+			hash, err := internal.ComputeFileHash(img.Path)
+			if err == nil {
+				img.FileHash = hash
+			}
+		}
+	}
+
 	// Save images to database
 	if err := store.SaveImages(images); err != nil {
 		return fmt.Errorf("failed to save images: %w", err)
@@ -105,8 +124,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Find duplicate groups
 	fmt.Println("Finding duplicates...")
-	g := internal.NewGrouper(threshold)
-	groups := g.FindGroups(images)
+	var matcher internal.Matcher
+	if exactMode {
+		matcher = internal.NewExactMatcher()
+	} else {
+		matcher = internal.NewPerceptualMatcher(threshold)
+	}
+	groups := matcher.FindGroups(images)
 
 	// Update groups in database
 	if err := store.UpdateGroups(groups); err != nil {

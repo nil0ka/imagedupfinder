@@ -1,11 +1,14 @@
 package internal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +101,22 @@ func (h *Hasher) CalculateScore(info *ImageInfo) float64 {
 	metadataMultiplier := MetadataMultiplier(info.HasExif)
 
 	return resolution * formatMultiplier * metadataMultiplier
+}
+
+// ComputeFileHash computes the SHA256 hash of a file
+func ComputeFileHash(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, file); err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // IsSupportedImage checks if a file is a supported image format

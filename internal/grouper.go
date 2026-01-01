@@ -4,58 +4,26 @@ import (
 	"sort"
 )
 
-// Grouper finds groups of similar images
-type Grouper struct {
-	threshold int // Hamming distance threshold
+// Matcher is the interface for duplicate detection strategies
+type Matcher interface {
+	FindGroups(images []*ImageInfo) []*DuplicateGroup
 }
 
-// NewGrouper creates a new Grouper
-func NewGrouper(threshold int) *Grouper {
+// PerceptualMatcher finds groups of similar images using perceptual hashing
+type PerceptualMatcher struct {
+	threshold int
+}
+
+// NewPerceptualMatcher creates a new PerceptualMatcher
+func NewPerceptualMatcher(threshold int) *PerceptualMatcher {
 	if threshold < 0 {
 		threshold = 10 // Default threshold
 	}
-	return &Grouper{threshold: threshold}
-}
-
-// Union-Find data structure for efficient grouping
-type unionFind struct {
-	parent []int
-	rank   []int
-}
-
-func newUnionFind(n int) *unionFind {
-	parent := make([]int, n)
-	rank := make([]int, n)
-	for i := range parent {
-		parent[i] = i
-	}
-	return &unionFind{parent: parent, rank: rank}
-}
-
-func (uf *unionFind) find(x int) int {
-	if uf.parent[x] != x {
-		uf.parent[x] = uf.find(uf.parent[x]) // Path compression
-	}
-	return uf.parent[x]
-}
-
-func (uf *unionFind) union(x, y int) {
-	px, py := uf.find(x), uf.find(y)
-	if px == py {
-		return
-	}
-	// Union by rank
-	if uf.rank[px] < uf.rank[py] {
-		px, py = py, px
-	}
-	uf.parent[py] = px
-	if uf.rank[px] == uf.rank[py] {
-		uf.rank[px]++
-	}
+	return &PerceptualMatcher{threshold: threshold}
 }
 
 // FindGroups finds groups of similar images based on Hamming distance
-func (g *Grouper) FindGroups(images []*ImageInfo) []*DuplicateGroup {
+func (m *PerceptualMatcher) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 	n := len(images)
 	if n < 2 {
 		return nil
@@ -69,7 +37,7 @@ func (g *Grouper) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			dist := HammingDistance(images[i].Hash, images[j].Hash)
-			if dist <= g.threshold {
+			if dist <= m.threshold {
 				uf.union(i, j)
 			}
 		}
@@ -82,9 +50,52 @@ func (g *Grouper) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 		groupMap[root] = append(groupMap[root], img)
 	}
 
-	// Build result (only groups with 2+ images)
+	return buildGroups(groupMap)
+}
+
+// GetThreshold returns the current threshold
+func (m *PerceptualMatcher) GetThreshold() int {
+	return m.threshold
+}
+
+// ExactMatcher finds groups of images with identical file hashes
+type ExactMatcher struct{}
+
+// NewExactMatcher creates a new ExactMatcher
+func NewExactMatcher() *ExactMatcher {
+	return &ExactMatcher{}
+}
+
+// FindGroups finds groups of images with identical file hashes
+func (m *ExactMatcher) FindGroups(images []*ImageInfo) []*DuplicateGroup {
+	if len(images) < 2 {
+		return nil
+	}
+
+	// Group by file hash
+	hashMap := make(map[string][]*ImageInfo)
+	for _, img := range images {
+		if img.FileHash != "" {
+			hashMap[img.FileHash] = append(hashMap[img.FileHash], img)
+		}
+	}
+
+	// Convert to group map format
+	groupMap := make(map[int][]*ImageInfo)
+	idx := 0
+	for _, imgs := range hashMap {
+		groupMap[idx] = imgs
+		idx++
+	}
+
+	return buildGroups(groupMap)
+}
+
+// buildGroups builds DuplicateGroup slice from a group map
+func buildGroups(groupMap map[int][]*ImageInfo) []*DuplicateGroup {
 	var groups []*DuplicateGroup
 	groupID := 1
+
 	for _, imgs := range groupMap {
 		if len(imgs) < 2 {
 			continue
@@ -95,8 +106,7 @@ func (g *Grouper) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 			Images: imgs,
 		}
 
-		// Determine which image to keep (highest score)
-		g.selectKeepAndRemove(group)
+		selectKeepAndRemove(group)
 		groups = append(groups, group)
 		groupID++
 	}
@@ -110,7 +120,7 @@ func (g *Grouper) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 }
 
 // selectKeepAndRemove determines which image to keep and which to remove
-func (g *Grouper) selectKeepAndRemove(group *DuplicateGroup) {
+func selectKeepAndRemove(group *DuplicateGroup) {
 	if len(group.Images) == 0 {
 		return
 	}
@@ -154,7 +164,39 @@ func (g *Grouper) selectKeepAndRemove(group *DuplicateGroup) {
 	}
 }
 
-// GetThreshold returns the current threshold
-func (g *Grouper) GetThreshold() int {
-	return g.threshold
+// Union-Find data structure for efficient grouping
+type unionFind struct {
+	parent []int
+	rank   []int
+}
+
+func newUnionFind(n int) *unionFind {
+	parent := make([]int, n)
+	rank := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	return &unionFind{parent: parent, rank: rank}
+}
+
+func (uf *unionFind) find(x int) int {
+	if uf.parent[x] != x {
+		uf.parent[x] = uf.find(uf.parent[x]) // Path compression
+	}
+	return uf.parent[x]
+}
+
+func (uf *unionFind) union(x, y int) {
+	px, py := uf.find(x), uf.find(y)
+	if px == py {
+		return
+	}
+	// Union by rank
+	if uf.rank[px] < uf.rank[py] {
+		px, py = py, px
+	}
+	uf.parent[py] = px
+	if uf.rank[px] == uf.rank[py] {
+		uf.rank[px]++
+	}
 }

@@ -7,6 +7,7 @@ type ImageInfo struct {
 	ID        int64     `json:"id"`
 	Path      string    `json:"path"`
 	Hash      uint64    `json:"hash"`
+	FileHash  string    `json:"file_hash,omitempty"` // SHA256 hash for exact matching
 	Width     int       `json:"width"`
 	Height    int       `json:"height"`
 	Format    string    `json:"format"`
