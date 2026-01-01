@@ -40,14 +40,50 @@ func NewStorage(dbPath string) (*Storage, error) {
 	return s, nil
 }
 
+// Current schema version
+const schemaVersion = 2
+
+// migrations defines all schema migrations
+// Each migration should be idempotent (safe to run multiple times)
+var migrations = []struct {
+	version     int
+	description string
+	up          string
+}{
+	{
+		version:     1,
+		description: "Initial schema",
+		up:          "", // Handled by base schema creation
+	},
+	{
+		version:     2,
+		description: "Add file_hash column for exact matching",
+		up: `
+			ALTER TABLE images ADD COLUMN file_hash TEXT DEFAULT '';
+			CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash);
+		`,
+	},
+}
+
 // init creates the database schema
 func (s *Storage) init() error {
+	// Create schema_version table first
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version INTEGER PRIMARY KEY,
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create schema_version table: %w", err)
+	}
+
+	// Create base schema
 	schema := `
 	CREATE TABLE IF NOT EXISTS images (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		path TEXT UNIQUE NOT NULL,
 		hash INTEGER NOT NULL,
-		file_hash TEXT DEFAULT '',
 		width INTEGER NOT NULL,
 		height INTEGER NOT NULL,
 		format TEXT NOT NULL,
@@ -73,12 +109,12 @@ func (s *Storage) init() error {
 	);
 	`
 
-	_, err := s.db.Exec(schema)
+	_, err = s.db.Exec(schema)
 	if err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
-	// Run migrations for existing databases
+	// Run migrations
 	if err := s.migrate(); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -86,32 +122,59 @@ func (s *Storage) init() error {
 	return nil
 }
 
-// migrate handles schema migrations for existing databases
+// migrate runs pending schema migrations
 func (s *Storage) migrate() error {
-	// Check if file_hash column exists
-	var count int
-	err := s.db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('images') WHERE name='file_hash'
-	`).Scan(&count)
-	if err != nil {
-		return err
-	}
+	currentVersion := s.getSchemaVersion()
 
-	// Add file_hash column if it doesn't exist
-	if count == 0 {
-		_, err = s.db.Exec(`ALTER TABLE images ADD COLUMN file_hash TEXT DEFAULT ''`)
-		if err != nil {
-			return err
+	for _, m := range migrations {
+		if m.version <= currentVersion || m.up == "" {
+			continue
 		}
-	}
 
-	// Create index on file_hash (will be no-op if already exists)
-	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash)`)
-	if err != nil {
-		return err
+		// Check if migration is needed (column might already exist)
+		if m.version == 2 {
+			if s.columnExists("images", "file_hash") {
+				s.setSchemaVersion(m.version)
+				continue
+			}
+		}
+
+		// Execute migration
+		if _, err := s.db.Exec(m.up); err != nil {
+			return fmt.Errorf("migration %d (%s) failed: %w", m.version, m.description, err)
+		}
+
+		s.setSchemaVersion(m.version)
 	}
 
 	return nil
+}
+
+// getSchemaVersion returns the current schema version
+func (s *Storage) getSchemaVersion() int {
+	var version int
+	err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version)
+	if err != nil {
+		return 0
+	}
+	return version
+}
+
+// setSchemaVersion records a migration as applied
+func (s *Storage) setSchemaVersion(version int) {
+	s.db.Exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (?)`, version)
+}
+
+// columnExists checks if a column exists in a table
+func (s *Storage) columnExists(table, column string) bool {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?
+	`, table, column).Scan(&count)
+	if err != nil {
+		return false
+	}
+	return count > 0
 }
 
 // Close closes the database connection
