@@ -198,6 +198,25 @@
             object-fit: contain;
         }
 
+        .image-wrapper .not-found {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            color: #666;
+            font-size: 0.875rem;
+            text-align: center;
+            padding: 1rem;
+        }
+
+        .image-wrapper .not-found::before {
+            content: "⚠";
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
         .image-badge {
             position: absolute;
             top: 0.5rem;
@@ -293,6 +312,49 @@
             padding: 1rem;
             border-radius: 8px;
             text-align: center;
+        }
+
+        .modal-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            font-size: 2rem;
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .modal-nav:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .modal-nav:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .modal-nav.prev {
+            left: 1rem;
+            border-radius: 8px;
+        }
+
+        .modal-nav.next {
+            right: 1rem;
+            border-radius: 8px;
+        }
+
+        .modal-counter {
+            position: absolute;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
         }
 
         .disconnected-banner {
@@ -465,9 +527,12 @@
 
     <div class="modal" id="modal">
         <button class="modal-close" onclick="closeModal()">&times;</button>
+        <div class="modal-counter" id="modal-counter"></div>
+        <button class="modal-nav prev" id="modal-prev" onclick="navigateModal(-1)">&#8249;</button>
         <div class="modal-content">
             <img id="modal-image" src="" alt="">
         </div>
+        <button class="modal-nav next" id="modal-next" onclick="navigateModal(1)">&#8250;</button>
         <div class="modal-info" id="modal-info"></div>
     </div>
 
@@ -490,6 +555,8 @@
         let connected = false;
         let selectedGroups = new Set();
         let keepOverrides = {}; // groupIdx -> keepImagePath
+        let currentGroupIdx = -1;
+        let currentImageIdx = -1;
 
         // Format file size
         function formatSize(bytes) {
@@ -655,10 +722,11 @@
                                           title="${isKeep ? 'Currently keeping this image' : 'Click to keep this image instead'}">
                                         ${isKeep ? 'KEEP' : 'DELETE'}
                                     </span>
-                                    <div class="image-wrapper" onclick="openModal('${encodeURIComponent(img.path)}', ${JSON.stringify(img).replace(/"/g, '&quot;')})">
+                                    <div class="image-wrapper" onclick="openModal(${idx}, ${imgIdx})">
                                         <img src="/api/image?path=${encodeURIComponent(img.path)}"
                                              alt="${getFilename(img.path)}"
-                                             loading="lazy">
+                                             loading="lazy"
+                                             onerror="this.parentElement.innerHTML='<div class=\\'not-found\\'>File not found</div>'">
                                     </div>
                                     <div class="image-info">
                                         <div class="image-name" title="${img.path}">${getFilename(img.path)}</div>
@@ -804,8 +872,11 @@
 
                 const result = await response.json();
                 const deleted = result.results.filter(r => r.status === 'deleted').length;
+                const notFound = result.results.filter(r => r.status === 'not_found').length;
 
-                showToast(`Deleted ${deleted} file(s) from ${selectedGroups.size} group(s)`);
+                let msg = `Deleted ${deleted} file(s) from ${selectedGroups.size} group(s)`;
+                if (notFound > 0) msg += ` (${notFound} already missing)`;
+                showToast(msg);
 
                 // Clear selection and reload
                 selectedGroups.clear();
@@ -840,8 +911,11 @@
 
                 const result = await response.json();
                 const deleted = result.results.filter(r => r.status === 'deleted').length;
+                const notFound = result.results.filter(r => r.status === 'not_found').length;
 
-                showToast(`Deleted ${deleted} file(s)`);
+                let msg = `Deleted ${deleted} file(s)`;
+                if (notFound > 0) msg += ` (${notFound} already missing)`;
+                showToast(msg);
 
                 // Reload groups
                 await loadGroups();
@@ -851,19 +925,50 @@
         }
 
         // Modal functions
-        function openModal(encodedPath, imgData) {
-            const path = decodeURIComponent(encodedPath);
+        function openModal(groupIdx, imageIdx) {
+            currentGroupIdx = groupIdx;
+            currentImageIdx = imageIdx;
+            updateModalContent();
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function updateModalContent() {
+            const group = groups[currentGroupIdx];
+            if (!group) return;
+
+            const img = group.images[currentImageIdx];
+            if (!img) return;
+
+            const encodedPath = encodeURIComponent(img.path);
             document.getElementById('modal-image').src = '/api/image?path=' + encodedPath;
             document.getElementById('modal-info').innerHTML = `
-                <div><strong>${getFilename(path)}</strong></div>
-                <div>${imgData.width}x${imgData.height} | ${imgData.format.toUpperCase()} | ${formatSize(imgData.file_size)}</div>
-                <div>Score: ${Math.round(imgData.score)}</div>
+                <div><strong>${getFilename(img.path)}</strong></div>
+                <div>${img.width}x${img.height} | ${img.format.toUpperCase()} | ${formatSize(img.file_size)}</div>
+                <div>Score: ${Math.round(img.score)}</div>
             `;
-            document.getElementById('modal').classList.add('active');
+            document.getElementById('modal-counter').textContent =
+                `Group #${group.id} - ${currentImageIdx + 1} / ${group.images.length}`;
+
+            // Update navigation buttons
+            document.getElementById('modal-prev').disabled = currentImageIdx === 0;
+            document.getElementById('modal-next').disabled = currentImageIdx === group.images.length - 1;
+        }
+
+        function navigateModal(direction) {
+            const group = groups[currentGroupIdx];
+            if (!group) return;
+
+            const newIdx = currentImageIdx + direction;
+            if (newIdx >= 0 && newIdx < group.images.length) {
+                currentImageIdx = newIdx;
+                updateModalContent();
+            }
         }
 
         function closeModal() {
             document.getElementById('modal').classList.remove('active');
+            currentGroupIdx = -1;
+            currentImageIdx = -1;
         }
 
         document.getElementById('modal').addEventListener('click', (e) => {
@@ -872,6 +977,8 @@
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') closeModal();
+            if (e.key === 'ArrowLeft') navigateModal(-1);
+            if (e.key === 'ArrowRight') navigateModal(1);
         });
 
         // Initialize

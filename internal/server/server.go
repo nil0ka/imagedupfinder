@@ -191,7 +191,12 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 	for _, path := range req.Paths {
 		result := map[string]interface{}{"path": path}
 
-		if req.MoveTo != "" {
+		// Check if file exists
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			// File doesn't exist, just remove from DB
+			s.storage.DeleteImage(path)
+			result["status"] = "not_found"
+		} else if req.MoveTo != "" {
 			// Move file
 			err := internal.MoveFile(path, req.MoveTo)
 			if err != nil {

@@ -9,6 +9,7 @@
 - **自動スコアリング** で最高品質の画像を自動選択
 - **並列処理** で大量画像を高速スキャン
 - **SQLite** でインデックスを永続化（差分スキャン対応）
+- **Web UI** でブラウザから視覚的に比較・削除
 
 ## インストール
 
@@ -42,10 +43,13 @@ imagedupfinder scan ~/Pictures --exact
 
 ### 2. 重複一覧
 
-検出された重複グループを表示:
+検出された重複グループを表示（デフォルト10件）:
 
 ```bash
-imagedupfinder list
+imagedupfinder list              # 最初の10件
+imagedupfinder list -n 0         # 全件表示
+imagedupfinder list -s           # サマリー表示（コンパクト）
+imagedupfinder list --offset 10  # 11件目以降
 ```
 
 出力例:
@@ -96,6 +100,23 @@ imagedupfinder clean --group=1           # グループ1のみ
 imagedupfinder clean -g 1 -g 3           # グループ1と3
 imagedupfinder clean --group=1,3,5       # カンマ区切りも可
 ```
+
+### 4. Web UI
+
+ブラウザで視覚的に比較・削除:
+
+```bash
+imagedupfinder serve              # http://localhost:8080 を開く
+imagedupfinder serve -p 3000      # ポート指定
+imagedupfinder serve --timeout 10m  # アイドルタイムアウト変更
+```
+
+Web UI の機能:
+- グループごとにサムネイル一覧表示
+- 画像クリックで拡大表示（← → キーで前後移動）
+- KEEP/DELETE バッジクリックで残す画像を変更
+- 複数グループを選択して一括削除
+- 5分間操作がないと自動終了（タブがアクティブな間は継続）
 
 ## スコアリング
 
@@ -172,13 +193,19 @@ imagedupfinder/
 │   ├── root.go      # CLI エントリポイント
 │   ├── scan.go      # scan コマンド
 │   ├── list.go      # list コマンド
-│   └── clean.go     # clean コマンド
+│   ├── clean.go     # clean コマンド
+│   └── serve.go     # serve コマンド (Web UI)
 └── internal/
     ├── models.go    # データ構造
     ├── hasher.go    # pHash 計算
     ├── scanner.go   # 並列スキャン
     ├── grouper.go   # 重複グループ検出 (Union-Find)
-    └── storage.go   # SQLite 永続化
+    ├── storage.go   # SQLite 永続化
+    ├── fileutil.go  # ファイル操作ユーティリティ
+    └── server/      # Web UI サーバー
+        ├── server.go
+        ├── websocket.go
+        └── static/index.html
 ```
 
 ## ライセンス
