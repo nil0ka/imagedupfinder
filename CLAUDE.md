@@ -29,7 +29,7 @@ CLI tool for detecting duplicate/similar images using perceptual hashing, writte
 
 1. **Scan** (`cmd/scan.go`): Walks folders, hashes images in parallel, groups duplicates, stores in SQLite
 2. **List** (`cmd/list.go`): Displays duplicate groups from database (paginated, default 10)
-3. **Clean** (`cmd/clean.go`): Removes or moves lower-quality duplicates
+3. **Clean** (`cmd/clean.go`): Removes lower-quality duplicates (default: trash, `--permanent` for hard delete)
 4. **Serve** (`cmd/serve.go`): Web UI for visual comparison and cleaning
 
 ### Key Components
@@ -41,7 +41,10 @@ CLI tool for detecting duplicate/similar images using perceptual hashing, writte
 - **Hasher** (`internal/hasher.go`): Computes pHash using goimagehash library, extracts EXIF, calculates quality scores
 - **Storage** (`internal/storage.go`): SQLite persistence with versioned schema migrations
 - **Server** (`internal/server/`): Embedded web UI with WebSocket for connection monitoring, auto-shutdown on idle
-- **FileUtil** (`internal/fileutil.go`): Shared file operations (MoveFile with collision handling)
+- **FileUtil** (`internal/fileutil.go`): Shared file operations
+  - `MoveFile`: Move with collision handling and cross-filesystem support
+  - `MoveToTrash`: Platform-specific trash (macOS ~/.Trash, Linux freedesktop.org, Windows Recycle Bin)
+  - Build tags: `fileutil_windows.go` (shell32.dll), `fileutil_notwindows.go` (stub)
 
 ### Scoring System
 
