@@ -485,6 +485,33 @@
             accent-color: #60a5fa;
         }
 
+        /* Delete mode selector */
+        .delete-mode {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .delete-mode select {
+            background: #1a1a2e;
+            color: #eee;
+            border: 1px solid #0f3460;
+            padding: 0.5rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        .delete-mode select:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        .delete-mode-label {
+            font-size: 0.875rem;
+            color: #888;
+        }
+
         /* Adjust container padding for bulk bar */
         body.has-selection .container {
             padding-bottom: 6rem;
@@ -498,9 +525,18 @@
 
     <header class="header">
         <h1>imagedupfinder</h1>
-        <div class="status">
-            <div class="status-dot" id="status-dot"></div>
-            <span class="status-text" id="status-text">Connected</span>
+        <div style="display: flex; align-items: center; gap: 2rem;">
+            <div class="delete-mode">
+                <span class="delete-mode-label">Delete mode:</span>
+                <select id="delete-mode">
+                    <option value="trash">Move to Trash</option>
+                    <option value="permanent">Delete Permanently</option>
+                </select>
+            </div>
+            <div class="status">
+                <div class="status-dot" id="status-dot"></div>
+                <span class="status-text" id="status-text">Connected</span>
+            </div>
         </div>
     </header>
 
@@ -545,7 +581,7 @@
         </div>
         <div class="bulk-actions">
             <button class="btn btn-secondary" onclick="clearSelection()">Cancel</button>
-            <button class="btn btn-danger" onclick="cleanSelectedGroups()">Delete All Selected</button>
+            <button class="btn btn-danger" id="bulk-delete-btn" onclick="cleanSelectedGroups()">Delete All Selected</button>
         </div>
     </div>
 
@@ -843,6 +879,16 @@
                 .map(img => img.path);
         }
 
+        // Get delete mode
+        function getDeleteMode() {
+            return document.getElementById('delete-mode').value;
+        }
+
+        // Get action text based on mode
+        function getActionText(mode) {
+            return mode === 'permanent' ? 'permanently delete' : 'move to trash';
+        }
+
         // Clean selected groups
         async function cleanSelectedGroups() {
             if (selectedGroups.size === 0) return;
@@ -857,7 +903,10 @@
                 return;
             }
 
-            if (!confirm(`Delete ${allPaths.length} duplicate(s) from ${selectedGroups.size} group(s)?`)) {
+            const mode = getDeleteMode();
+            const actionText = getActionText(mode);
+
+            if (!confirm(`${mode === 'permanent' ? 'Permanently delete' : 'Move to trash'} ${allPaths.length} duplicate(s) from ${selectedGroups.size} group(s)?`)) {
                 return;
             }
 
@@ -865,16 +914,24 @@
                 const response = await fetch('/api/clean', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ paths: allPaths })
+                    body: JSON.stringify({
+                        paths: allPaths,
+                        permanent: mode === 'permanent'
+                    })
                 });
 
                 if (!response.ok) throw new Error('Failed to clean');
 
                 const result = await response.json();
+                const trashed = result.results.filter(r => r.status === 'trashed').length;
                 const deleted = result.results.filter(r => r.status === 'deleted').length;
                 const notFound = result.results.filter(r => r.status === 'not_found').length;
+                const processed = trashed + deleted;
 
-                let msg = `Deleted ${deleted} file(s) from ${selectedGroups.size} group(s)`;
+                let msg = mode === 'permanent'
+                    ? `Permanently deleted ${processed} file(s)`
+                    : `Moved ${processed} file(s) to trash`;
+                msg += ` from ${selectedGroups.size} group(s)`;
                 if (notFound > 0) msg += ` (${notFound} already missing)`;
                 showToast(msg);
 
@@ -896,7 +953,9 @@
                 return;
             }
 
-            if (!confirm(`Delete ${paths.length} duplicate(s) from Group #${group.id}?`)) {
+            const mode = getDeleteMode();
+
+            if (!confirm(`${mode === 'permanent' ? 'Permanently delete' : 'Move to trash'} ${paths.length} duplicate(s) from Group #${group.id}?`)) {
                 return;
             }
 
@@ -904,16 +963,23 @@
                 const response = await fetch('/api/clean', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ paths })
+                    body: JSON.stringify({
+                        paths,
+                        permanent: mode === 'permanent'
+                    })
                 });
 
                 if (!response.ok) throw new Error('Failed to clean');
 
                 const result = await response.json();
+                const trashed = result.results.filter(r => r.status === 'trashed').length;
                 const deleted = result.results.filter(r => r.status === 'deleted').length;
                 const notFound = result.results.filter(r => r.status === 'not_found').length;
+                const processed = trashed + deleted;
 
-                let msg = `Deleted ${deleted} file(s)`;
+                let msg = mode === 'permanent'
+                    ? `Permanently deleted ${processed} file(s)`
+                    : `Moved ${processed} file(s) to trash`;
                 if (notFound > 0) msg += ` (${notFound} already missing)`;
                 showToast(msg);
 
@@ -981,9 +1047,19 @@
             if (e.key === 'ArrowRight') navigateModal(1);
         });
 
+        // Update bulk button text based on mode
+        function updateBulkButtonText() {
+            const btn = document.getElementById('bulk-delete-btn');
+            const mode = getDeleteMode();
+            btn.textContent = mode === 'permanent' ? 'Delete All Permanently' : 'Move All to Trash';
+        }
+
+        document.getElementById('delete-mode').addEventListener('change', updateBulkButtonText);
+
         // Initialize
         connectWebSocket();
         loadGroups();
+        updateBulkButtonText();
     </script>
 </body>
 </html>

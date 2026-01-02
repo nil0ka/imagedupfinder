@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	dryRun      bool
-	moveTo      string
-	noConfirm   bool
-	groupIDs    []int
+	dryRun    bool
+	moveTo    string
+	permanent bool
+	noConfirm bool
+	groupIDs  []int
 )
 
 var cleanCmd = &cobra.Command{
@@ -25,25 +26,28 @@ var cleanCmd = &cobra.Command{
 
 The clean command will:
 1. Keep the image with the highest quality score in each group
-2. Delete or move the lower quality duplicates
+2. Move lower quality duplicates to trash (default) or delete permanently
 
 Options:
-  --dry-run     Preview what would be deleted without actually deleting
-  --move-to     Move duplicates to a folder instead of deleting
+  --dry-run     Preview what would be removed without actually removing
+  --permanent   Delete files permanently instead of moving to trash
+  --move-to     Move duplicates to a specific folder
   --yes         Skip confirmation prompt
   --group       Specify group IDs to clean (can be used multiple times)
 
 Example:
-  imagedupfinder clean --dry-run           # Preview deletions
-  imagedupfinder clean                     # Delete duplicates
-  imagedupfinder clean --move-to=./trash   # Move duplicates to trash folder
+  imagedupfinder clean                     # Move to trash (default)
+  imagedupfinder clean --permanent         # Delete permanently
+  imagedupfinder clean --move-to=./backup  # Move to specific folder
+  imagedupfinder clean --dry-run           # Preview only
   imagedupfinder clean --group=1 --group=3 # Clean only groups 1 and 3`,
 	RunE: runClean,
 }
 
 func init() {
-	cleanCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview without deleting")
-	cleanCmd.Flags().StringVar(&moveTo, "move-to", "", "Move duplicates to this folder instead of deleting")
+	cleanCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview without removing")
+	cleanCmd.Flags().BoolVar(&permanent, "permanent", false, "Delete permanently instead of moving to trash")
+	cleanCmd.Flags().StringVar(&moveTo, "move-to", "", "Move duplicates to this folder")
 	cleanCmd.Flags().BoolVarP(&noConfirm, "yes", "y", false, "Skip confirmation prompt")
 	cleanCmd.Flags().IntSliceVarP(&groupIDs, "group", "g", nil, "Group IDs to clean (can be specified multiple times)")
 	rootCmd.AddCommand(cleanCmd)
@@ -108,10 +112,14 @@ func runClean(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Show what will be done
-	action := "delete"
+	// Determine action
+	var action string
 	if moveTo != "" {
 		action = fmt.Sprintf("move to %s", moveTo)
+	} else if permanent {
+		action = "permanently delete"
+	} else {
+		action = "move to trash"
 	}
 
 	fmt.Printf("Will %s %d files (%s)\n\n", action, len(toRemove), formatSize(totalSize))
@@ -147,20 +155,22 @@ func runClean(cmd *cobra.Command, args []string) error {
 	}
 
 	// Process files
-	var deleted, failed int
+	var processed, failed int
 	for _, path := range toRemove {
 		var err error
 		if moveTo != "" {
 			err = internal.MoveFile(path, moveTo)
-		} else {
+		} else if permanent {
 			err = os.Remove(path)
+		} else {
+			err = internal.MoveToTrash(path)
 		}
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to remove %s: %v\n", path, err)
+			fmt.Fprintf(os.Stderr, "Failed to process %s: %v\n", path, err)
 			failed++
 		} else {
-			deleted++
+			processed++
 			// Remove from database
 			store.DeleteImage(path)
 		}
@@ -168,9 +178,11 @@ func runClean(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	if moveTo != "" {
-		fmt.Printf("Moved %d files to %s\n", deleted, moveTo)
+		fmt.Printf("Moved %d files to %s\n", processed, moveTo)
+	} else if permanent {
+		fmt.Printf("Permanently deleted %d files\n", processed)
 	} else {
-		fmt.Printf("Deleted %d files\n", deleted)
+		fmt.Printf("Moved %d files to trash\n", processed)
 	}
 	if failed > 0 {
 		fmt.Printf("Failed: %d files\n", failed)

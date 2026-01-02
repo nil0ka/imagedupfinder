@@ -177,8 +177,9 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 	s.recordActivity()
 
 	var req struct {
-		Paths  []string `json:"paths"`
-		MoveTo string   `json:"move_to,omitempty"`
+		Paths     []string `json:"paths"`
+		MoveTo    string   `json:"move_to,omitempty"`
+		Permanent bool     `json:"permanent,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -205,13 +206,22 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 				result["status"] = "moved"
 				s.storage.DeleteImage(path)
 			}
-		} else {
-			// Delete file
+		} else if req.Permanent {
+			// Delete file permanently
 			err := os.Remove(path)
 			if err != nil {
 				result["error"] = err.Error()
 			} else {
 				result["status"] = "deleted"
+				s.storage.DeleteImage(path)
+			}
+		} else {
+			// Move to trash (default)
+			err := internal.MoveToTrash(path)
+			if err != nil {
+				result["error"] = err.Error()
+			} else {
+				result["status"] = "trashed"
 				s.storage.DeleteImage(path)
 			}
 		}
