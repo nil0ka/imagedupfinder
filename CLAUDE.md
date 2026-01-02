@@ -14,6 +14,13 @@ make lint           # Run golangci-lint
 make tidy           # Run go mod tidy
 ```
 
+## Design Principles
+
+- **YAGNI**: 使わない機能は実装しない。未実装のTODOを残さず、必要になったら追加する
+- **DRY**: 重複コードは共通化する（例: `internal/fileutil.go`）
+- **ポリモーフィズム優先**: 型スイッチより interface を使う（例: `Matcher` interface）
+- **機能オプションパターン**: 設定可能なコンポーネントには functional options を使う（例: `Scanner`）
+
 ## Architecture Overview
 
 CLI tool for detecting duplicate/similar images using perceptual hashing, written in Go with Cobra.
@@ -21,8 +28,9 @@ CLI tool for detecting duplicate/similar images using perceptual hashing, writte
 ### Core Flow
 
 1. **Scan** (`cmd/scan.go`): Walks folders, hashes images in parallel, groups duplicates, stores in SQLite
-2. **List** (`cmd/list.go`): Displays duplicate groups from database
+2. **List** (`cmd/list.go`): Displays duplicate groups from database (paginated, default 10)
 3. **Clean** (`cmd/clean.go`): Removes or moves lower-quality duplicates
+4. **Serve** (`cmd/serve.go`): Web UI for visual comparison and cleaning
 
 ### Key Components
 
@@ -32,6 +40,8 @@ CLI tool for detecting duplicate/similar images using perceptual hashing, writte
 - **Scanner** (`internal/scanner.go`): Parallel folder scanning with configurable workers via functional options pattern
 - **Hasher** (`internal/hasher.go`): Computes pHash using goimagehash library, extracts EXIF, calculates quality scores
 - **Storage** (`internal/storage.go`): SQLite persistence with versioned schema migrations
+- **Server** (`internal/server/`): Embedded web UI with WebSocket for connection monitoring, auto-shutdown on idle
+- **FileUtil** (`internal/fileutil.go`): Shared file operations (MoveFile with collision handling)
 
 ### Scoring System
 
