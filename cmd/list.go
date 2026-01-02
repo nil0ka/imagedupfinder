@@ -13,6 +13,9 @@ import (
 var (
 	listJSON    bool
 	listVerbose bool
+	listSummary bool
+	listLimit   int
+	listOffset  int
 )
 
 var listCmd = &cobra.Command{
@@ -27,14 +30,19 @@ Each group shows:
 - Which images will be removed marked with ✗
 
 Example:
-  imagedupfinder list
-  imagedupfinder list --verbose`,
+  imagedupfinder list              # Show first 10 groups (default)
+  imagedupfinder list -n 0         # Show all groups
+  imagedupfinder list -s           # Summary view (compact)
+  imagedupfinder list --offset 10  # Groups 11-20`,
 	RunE: runList,
 }
 
 func init() {
 	listCmd.Flags().BoolVar(&listJSON, "json", false, "Output in JSON format")
 	listCmd.Flags().BoolVarP(&listVerbose, "verbose", "v", false, "Show detailed image info")
+	listCmd.Flags().BoolVarP(&listSummary, "summary", "s", false, "Show summary only (group counts and sizes)")
+	listCmd.Flags().IntVarP(&listLimit, "limit", "n", 10, "Limit number of groups to display (0 = all)")
+	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N groups (for pagination)")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -69,8 +77,41 @@ func runList(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Found %d duplicate groups (%d duplicates, %s reclaimable)\n\n",
 		len(groups), totalDuplicates, formatSize(totalSavings))
 
-	for _, group := range groups {
-		printGroup(group, listVerbose)
+	// Apply pagination
+	totalGroups := len(groups)
+	startIdx := listOffset
+	if startIdx > len(groups) {
+		startIdx = len(groups)
+	}
+	groups = groups[startIdx:]
+
+	if listLimit > 0 && listLimit < len(groups) {
+		groups = groups[:listLimit]
+	}
+
+	// Display groups
+	if len(groups) == 0 {
+		fmt.Printf("No groups in range (offset %d exceeds total %d)\n", listOffset, totalGroups)
+	} else if listSummary {
+		printSummaryTable(groups)
+	} else {
+		for _, group := range groups {
+			printGroup(group, listVerbose)
+		}
+	}
+
+	// Show pagination info
+	endIdx := startIdx + len(groups)
+	if len(groups) > 0 {
+		fmt.Printf("Showing groups %d-%d of %d\n", startIdx+1, endIdx, totalGroups)
+		if endIdx < totalGroups {
+			nextOffset := endIdx
+			limitArg := ""
+			if listLimit > 0 {
+				limitArg = fmt.Sprintf(" -n %d", listLimit)
+			}
+			fmt.Printf("Next page: imagedupfinder list%s --offset %d\n", limitArg, nextOffset)
+		}
 	}
 
 	fmt.Println()
@@ -78,6 +119,27 @@ func runList(cmd *cobra.Command, args []string) error {
 	fmt.Println("Run 'imagedupfinder clean' to remove duplicates")
 
 	return nil
+}
+
+func printSummaryTable(groups []*internal.DuplicateGroup) {
+	fmt.Printf("%-8s  %-8s  %-12s  %s\n", "Group", "Images", "Reclaimable", "Keep (best quality)")
+	fmt.Println(strings.Repeat("-", 70))
+
+	for _, group := range groups {
+		var reclaimable int64
+		for _, img := range group.Remove {
+			reclaimable += img.FileSize
+		}
+
+		keepName := filepath.Base(group.Keep.Path)
+		if len(keepName) > 35 {
+			keepName = keepName[:32] + "..."
+		}
+
+		fmt.Printf("#%-7d  %-8d  %-12s  %s\n",
+			group.ID, len(group.Images), formatSize(reclaimable), keepName)
+	}
+	fmt.Println()
 }
 
 func printGroup(group *internal.DuplicateGroup, verbose bool) {
