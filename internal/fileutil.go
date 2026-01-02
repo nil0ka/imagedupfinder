@@ -97,19 +97,24 @@ func copyFile(src, dest string) error {
 // MoveToTrash moves a file to the system trash/recycle bin.
 // - macOS: ~/.Trash
 // - Linux: ~/.local/share/Trash (freedesktop.org spec)
-// - Windows: ~/imagedupfinder_trash (fallback)
+// - Windows: Recycle Bin (via shell32.dll)
 func MoveToTrash(src string) error {
-	trashDir, err := getTrashDir()
-	if err != nil {
-		return err
-	}
-
-	// For Linux, we need to create .trashinfo file
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "windows":
+		return moveToWindowsTrash(src)
+	case "linux":
+		trashDir, err := getTrashDir()
+		if err != nil {
+			return err
+		}
 		return moveToLinuxTrash(src, trashDir)
+	default: // darwin, etc.
+		trashDir, err := getTrashDir()
+		if err != nil {
+			return err
+		}
+		return MoveFile(src, trashDir)
 	}
-
-	return MoveFile(src, trashDir)
 }
 
 // getTrashDir returns the path to the system trash directory.

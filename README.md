@@ -10,6 +10,7 @@
 - **並列処理** で大量画像を高速スキャン
 - **SQLite** でインデックスを永続化（差分スキャン対応）
 - **Web UI** でブラウザから視覚的に比較・削除
+- **ゴミ箱対応** で安全に削除（復元可能）
 
 ## インストール
 
@@ -75,13 +76,14 @@ Group #1 (3 images)
 imagedupfinder clean --dry-run
 ```
 
-実行（確認プロンプトあり）:
+実行（デフォルトでゴミ箱へ移動）:
 
 ```bash
-imagedupfinder clean
+imagedupfinder clean                     # ゴミ箱へ移動（復元可能）
+imagedupfinder clean --permanent         # 完全削除（復元不可）
 ```
 
-削除の代わりに移動:
+指定フォルダへ移動:
 
 ```bash
 imagedupfinder clean --move-to=./duplicates
@@ -101,6 +103,14 @@ imagedupfinder clean -g 1 -g 3           # グループ1と3
 imagedupfinder clean --group=1,3,5       # カンマ区切りも可
 ```
 
+#### ゴミ箱の場所
+
+| 環境 | 場所 |
+|----|------|
+| macOS | `~/.Trash` |
+| Linux / WSL | `~/.local/share/Trash` (freedesktop.org 準拠) |
+| Windows | システムのごみ箱（Recycle Bin） |
+
 ### 4. Web UI
 
 ブラウザで視覚的に比較・削除:
@@ -116,6 +126,7 @@ Web UI の機能:
 - 画像クリックで拡大表示（← → キーで前後移動）
 - KEEP/DELETE バッジクリックで残す画像を変更
 - 複数グループを選択して一括削除
+- 削除モード選択（ゴミ箱 / 完全削除）
 - 5分間操作がないと自動終了（タブがアクティブな間は継続）
 
 ## スコアリング
