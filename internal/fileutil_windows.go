@@ -43,10 +43,12 @@ func moveToWindowsTrash(path string) error {
 	}
 
 	// SHFileOperationW requires double null-terminated string
-	pathW, err := syscall.UTF16FromString(absPath + "\x00")
+	pathW, err := syscall.UTF16FromString(absPath)
 	if err != nil {
 		return err
 	}
+	// Append extra null for double-null termination (pFrom is a list of paths)
+	pathW = append(pathW, 0)
 
 	op := shFileOpStructW{
 		Func:  foDelete,
