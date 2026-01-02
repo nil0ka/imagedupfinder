@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -152,7 +151,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 	for _, path := range toRemove {
 		var err error
 		if moveTo != "" {
-			err = moveFile(path, moveTo)
+			err = internal.MoveFile(path, moveTo)
 		} else {
 			err = os.Remove(path)
 		}
@@ -179,25 +178,4 @@ func runClean(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Space reclaimed: %s\n", formatSize(totalSize))
 
 	return nil
-}
-
-func moveFile(src, destDir string) error {
-	filename := filepath.Base(src)
-	dest := filepath.Join(destDir, filename)
-
-	// Handle name collision
-	if _, err := os.Stat(dest); err == nil {
-		ext := filepath.Ext(filename)
-		name := strings.TrimSuffix(filename, ext)
-		counter := 1
-		for {
-			dest = filepath.Join(destDir, fmt.Sprintf("%s_%d%s", name, counter, ext))
-			if _, err := os.Stat(dest); os.IsNotExist(err) {
-				break
-			}
-			counter++
-		}
-	}
-
-	return os.Rename(src, dest)
 }

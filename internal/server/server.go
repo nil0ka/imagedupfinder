@@ -27,12 +27,11 @@ type Server struct {
 	httpServer  *http.Server
 
 	// Idle timeout management
-	mu              sync.Mutex
-	lastActivity    time.Time
-	tabActive       bool
-	activeClients   int
-	shutdownTimer   *time.Timer
-	shutdownChan    chan struct{}
+	mu            sync.Mutex
+	lastActivity  time.Time
+	tabActive     bool
+	activeClients int
+	shutdownChan  chan struct{}
 }
 
 // New creates a new Server
@@ -60,11 +59,8 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/groups", s.handleGroups)
-	mux.HandleFunc("/api/group/", s.handleGroup)
 	mux.HandleFunc("/api/clean", s.handleClean)
 	mux.HandleFunc("/api/image", s.handleImage)
-	mux.HandleFunc("/api/ping", s.handlePing)
-	mux.HandleFunc("/api/activity", s.handleActivity)
 
 	// WebSocket for connection monitoring
 	mux.HandleFunc("/ws", s.handleWebSocket)
@@ -172,12 +168,6 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(groups)
 }
 
-func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request) {
-	s.recordActivity()
-	// TODO: implement single group fetch
-	http.Error(w, "not implemented", http.StatusNotImplemented)
-}
-
 func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -203,7 +193,7 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 
 		if req.MoveTo != "" {
 			// Move file
-			err := moveFile(path, req.MoveTo)
+			err := internal.MoveFile(path, req.MoveTo)
 			if err != nil {
 				result["error"] = err.Error()
 			} else {
@@ -240,45 +230,4 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, path)
-}
-
-func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
-	s.recordActivity()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		TabActive bool `json:"tab_active"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	s.setTabActive(req.TabActive)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func moveFile(src, destDir string) error {
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return err
-	}
-
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	destPath := destDir + "/" + info.Name()
-	return os.Rename(src, destPath)
 }
