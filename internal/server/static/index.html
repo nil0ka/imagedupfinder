@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>imagedupfinder</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #16213e;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0f3460;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+
+        .status-text {
+            font-size: 0.875rem;
+            color: #aaa;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .summary {
+            background: #16213e;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 2rem;
+        }
+
+        .summary-item {
+            text-align: center;
+        }
+
+        .summary-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+
+        .summary-label {
+            font-size: 0.875rem;
+            color: #888;
+        }
+
+        .group {
+            background: #16213e;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .group-header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #0f3460;
+        }
+
+        .group-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .group-meta {
+            font-size: 0.875rem;
+            color: #888;
+        }
+
+        .group-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        .btn-secondary {
+            background: #374151;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .images {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 1.5rem;
+        }
+
+        .image-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+
+        .image-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .image-card.keep {
+            border: 2px solid #4ade80;
+        }
+
+        .image-card.remove {
+            border: 2px solid #ef4444;
+            opacity: 0.7;
+        }
+
+        .image-card.remove:hover {
+            opacity: 1;
+        }
+
+        .image-wrapper {
+            aspect-ratio: 1;
+            overflow: hidden;
+            background: #0a0a0a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .image-wrapper img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .image-badge {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .badge-keep {
+            background: #4ade80;
+            color: #000;
+        }
+
+        .badge-remove {
+            background: #ef4444;
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.1s;
+        }
+
+        .badge-remove:hover {
+            background: #22c55e;
+            transform: scale(1.05);
+        }
+
+        .image-info {
+            padding: 0.75rem;
+        }
+
+        .image-name {
+            font-size: 0.75rem;
+            color: #aaa;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 0.25rem;
+        }
+
+        .image-meta {
+            font-size: 0.75rem;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            max-width: 90vw;
+            max-height: 90vh;
+        }
+
+        .modal-content img {
+            max-width: 100%;
+            max-height: 90vh;
+            object-fit: contain;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+        }
+
+        .modal-info {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .disconnected-banner {
+            display: none;
+            background: #dc2626;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 200;
+        }
+
+        .disconnected-banner.active {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 4rem;
+            color: #888;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 4rem;
+            color: #888;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: #16213e;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 300;
+            display: none;
+        }
+
+        .toast.active {
+            display: block;
+        }
+
+        .toast.success {
+            border-left: 4px solid #4ade80;
+        }
+
+        .toast.error {
+            border-left: 4px solid #ef4444;
+        }
+
+        /* Bulk action bar */
+        .bulk-bar {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #16213e;
+            border-top: 1px solid #0f3460;
+            padding: 1rem 2rem;
+            z-index: 150;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+        }
+
+        .bulk-bar.active {
+            display: flex;
+        }
+
+        .bulk-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .bulk-count {
+            font-weight: bold;
+            color: #60a5fa;
+        }
+
+        .bulk-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Group checkbox */
+        .group-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .group-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #60a5fa;
+        }
+
+        /* Select all bar */
+        .select-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding: 0.75rem 1rem;
+            background: #16213e;
+            border-radius: 8px;
+        }
+
+        .select-bar label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+
+        .select-bar input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #60a5fa;
+        }
+
+        /* Adjust container padding for bulk bar */
+        body.has-selection .container {
+            padding-bottom: 6rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="disconnected-banner" id="disconnected-banner">
+        Server disconnected. Please restart: <code>imagedupfinder serve</code>
+    </div>
+
+    <header class="header">
+        <h1>imagedupfinder</h1>
+        <div class="status">
+            <div class="status-dot" id="status-dot"></div>
+            <span class="status-text" id="status-text">Connected</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="summary" id="summary">
+            <div class="summary-item">
+                <div class="summary-value" id="total-groups">-</div>
+                <div class="summary-label">Duplicate Groups</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="total-duplicates">-</div>
+                <div class="summary-label">Duplicates</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="total-savings">-</div>
+                <div class="summary-label">Reclaimable</div>
+            </div>
+        </div>
+
+        <div id="groups-container">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal">
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <div class="modal-content">
+            <img id="modal-image" src="" alt="">
+        </div>
+        <div class="modal-info" id="modal-info"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="bulk-bar" id="bulk-bar">
+        <div class="bulk-info">
+            <span class="bulk-count" id="bulk-count">0 groups selected</span>
+            <span class="bulk-files" id="bulk-files">0 files to delete</span>
+        </div>
+        <div class="bulk-actions">
+            <button class="btn btn-secondary" onclick="clearSelection()">Cancel</button>
+            <button class="btn btn-danger" onclick="cleanSelectedGroups()">Delete All Selected</button>
+        </div>
+    </div>
+
+    <script>
+        let groups = [];
+        let ws = null;
+        let connected = false;
+        let selectedGroups = new Set();
+        let keepOverrides = {}; // groupIdx -> keepImagePath
+
+        // Format file size
+        function formatSize(bytes) {
+            if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+            if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return bytes + ' B';
+        }
+
+        // Get filename from path
+        function getFilename(path) {
+            return path.split('/').pop().split('\\').pop();
+        }
+
+        // Show toast message
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast active ' + type;
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        // Connect WebSocket
+        function connectWebSocket() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(protocol + '//' + location.host + '/ws');
+
+            ws.onopen = () => {
+                connected = true;
+                updateConnectionStatus(true);
+            };
+
+            ws.onclose = () => {
+                connected = false;
+                updateConnectionStatus(false);
+                // Try to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = () => {
+                connected = false;
+                updateConnectionStatus(false);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'pong') {
+                    // Connection alive
+                }
+            };
+        }
+
+        function updateConnectionStatus(isConnected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            const banner = document.getElementById('disconnected-banner');
+
+            if (isConnected) {
+                dot.classList.remove('disconnected');
+                text.textContent = 'Connected';
+                banner.classList.remove('active');
+            } else {
+                dot.classList.add('disconnected');
+                text.textContent = 'Disconnected';
+                banner.classList.add('active');
+            }
+        }
+
+        // Send tab visibility to server
+        function updateTabVisibility() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'visibility',
+                    tab_active: !document.hidden
+                }));
+            }
+        }
+
+        document.addEventListener('visibilitychange', updateTabVisibility);
+
+        // Ping server periodically
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+
+        // Load groups
+        async function loadGroups() {
+            try {
+                const response = await fetch('/api/groups');
+                if (!response.ok) throw new Error('Failed to load groups');
+                groups = await response.json() || [];
+                renderGroups();
+            } catch (error) {
+                document.getElementById('groups-container').innerHTML =
+                    '<div class="empty">Failed to load groups: ' + error.message + '</div>';
+            }
+        }
+
+        // Render groups
+        function renderGroups() {
+            const container = document.getElementById('groups-container');
+
+            if (groups.length === 0) {
+                container.innerHTML = '<div class="empty">No duplicate groups found.</div>';
+                document.getElementById('total-groups').textContent = '0';
+                document.getElementById('total-duplicates').textContent = '0';
+                document.getElementById('total-savings').textContent = '0 B';
+                return;
+            }
+
+            // Calculate totals
+            let totalDuplicates = 0;
+            let totalSavings = 0;
+            groups.forEach(group => {
+                group.remove.forEach(img => {
+                    totalDuplicates++;
+                    totalSavings += img.file_size;
+                });
+            });
+
+            document.getElementById('total-groups').textContent = groups.length;
+            document.getElementById('total-duplicates').textContent = totalDuplicates;
+            document.getElementById('total-savings').textContent = formatSize(totalSavings);
+
+            // Select all bar
+            let html = `
+                <div class="select-bar">
+                    <label>
+                        <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)">
+                        Select All Groups
+                    </label>
+                    <span>${groups.length} groups</span>
+                </div>
+            `;
+
+            html += groups.map((group, idx) => `
+                <div class="group" id="group-${group.id}">
+                    <div class="group-header">
+                        <div class="group-checkbox">
+                            <input type="checkbox"
+                                   id="check-${idx}"
+                                   ${selectedGroups.has(idx) ? 'checked' : ''}
+                                   onchange="toggleGroupSelection(${idx}, this.checked)">
+                            <span class="group-title">Group #${group.id}</span>
+                            <span class="group-meta">${group.images.length} images</span>
+                        </div>
+                        <div class="group-actions">
+                            <button class="btn btn-danger" onclick="cleanGroup(${idx})">
+                                Delete Duplicates
+                            </button>
+                        </div>
+                    </div>
+                    <div class="images">
+                        ${group.images.map((img, imgIdx) => {
+                            const keepPath = keepOverrides[idx] || group.keep.path;
+                            const isKeep = img.path === keepPath;
+                            return `
+                                <div class="image-card ${isKeep ? 'keep' : 'remove'}">
+                                    <span class="image-badge ${isKeep ? 'badge-keep' : 'badge-remove'}"
+                                          onclick="event.stopPropagation(); setKeep(${idx}, '${encodeURIComponent(img.path)}')"
+                                          title="${isKeep ? 'Currently keeping this image' : 'Click to keep this image instead'}">
+                                        ${isKeep ? 'KEEP' : 'DELETE'}
+                                    </span>
+                                    <div class="image-wrapper" onclick="openModal('${encodeURIComponent(img.path)}', ${JSON.stringify(img).replace(/"/g, '&quot;')})">
+                                        <img src="/api/image?path=${encodeURIComponent(img.path)}"
+                                             alt="${getFilename(img.path)}"
+                                             loading="lazy">
+                                    </div>
+                                    <div class="image-info">
+                                        <div class="image-name" title="${img.path}">${getFilename(img.path)}</div>
+                                        <div class="image-meta">
+                                            <span>${img.width}x${img.height}</span>
+                                            <span>${formatSize(img.file_size)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+            updateBulkBar();
+        }
+
+        // Toggle group selection
+        function toggleGroupSelection(idx, checked) {
+            if (checked) {
+                selectedGroups.add(idx);
+            } else {
+                selectedGroups.delete(idx);
+            }
+            updateBulkBar();
+            updateSelectAllCheckbox();
+        }
+
+        // Toggle select all
+        function toggleSelectAll(checked) {
+            if (checked) {
+                groups.forEach((_, idx) => selectedGroups.add(idx));
+            } else {
+                selectedGroups.clear();
+            }
+            // Update individual checkboxes
+            groups.forEach((_, idx) => {
+                const checkbox = document.getElementById(`check-${idx}`);
+                if (checkbox) checkbox.checked = checked;
+            });
+            updateBulkBar();
+        }
+
+        // Update select all checkbox state
+        function updateSelectAllCheckbox() {
+            const selectAll = document.getElementById('select-all');
+            if (selectAll) {
+                selectAll.checked = selectedGroups.size === groups.length && groups.length > 0;
+                selectAll.indeterminate = selectedGroups.size > 0 && selectedGroups.size < groups.length;
+            }
+        }
+
+        // Update bulk action bar
+        function updateBulkBar() {
+            const bulkBar = document.getElementById('bulk-bar');
+            const bulkCount = document.getElementById('bulk-count');
+            const bulkFiles = document.getElementById('bulk-files');
+
+            if (selectedGroups.size > 0) {
+                bulkBar.classList.add('active');
+                document.body.classList.add('has-selection');
+
+                let fileCount = 0;
+                let totalSize = 0;
+                selectedGroups.forEach(idx => {
+                    if (groups[idx]) {
+                        const keepPath = keepOverrides[idx] || groups[idx].keep.path;
+                        groups[idx].images.forEach(img => {
+                            if (img.path !== keepPath) {
+                                fileCount++;
+                                totalSize += img.file_size;
+                            }
+                        });
+                    }
+                });
+
+                bulkCount.textContent = `${selectedGroups.size} group${selectedGroups.size > 1 ? 's' : ''} selected`;
+                bulkFiles.textContent = `${fileCount} files (${formatSize(totalSize)})`;
+            } else {
+                bulkBar.classList.remove('active');
+                document.body.classList.remove('has-selection');
+            }
+        }
+
+        // Clear selection
+        function clearSelection() {
+            selectedGroups.clear();
+            groups.forEach((_, idx) => {
+                const checkbox = document.getElementById(`check-${idx}`);
+                if (checkbox) checkbox.checked = false;
+            });
+            updateBulkBar();
+            updateSelectAllCheckbox();
+        }
+
+        // Set keep image for a group
+        function setKeep(groupIdx, encodedPath) {
+            const path = decodeURIComponent(encodedPath);
+            keepOverrides[groupIdx] = path;
+            renderGroups();
+            showToast('Updated keep selection');
+        }
+
+        // Get remove paths for a group (respecting overrides)
+        function getRemovePaths(groupIdx) {
+            const group = groups[groupIdx];
+            if (!group) return [];
+
+            const keepPath = keepOverrides[groupIdx] || group.keep.path;
+            return group.images
+                .filter(img => img.path !== keepPath)
+                .map(img => img.path);
+        }
+
+        // Clean selected groups
+        async function cleanSelectedGroups() {
+            if (selectedGroups.size === 0) return;
+
+            let allPaths = [];
+            selectedGroups.forEach(idx => {
+                allPaths.push(...getRemovePaths(idx));
+            });
+
+            if (allPaths.length === 0) {
+                showToast('No duplicates to delete', 'error');
+                return;
+            }
+
+            if (!confirm(`Delete ${allPaths.length} duplicate(s) from ${selectedGroups.size} group(s)?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/clean', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths: allPaths })
+                });
+
+                if (!response.ok) throw new Error('Failed to clean');
+
+                const result = await response.json();
+                const deleted = result.results.filter(r => r.status === 'deleted').length;
+
+                showToast(`Deleted ${deleted} file(s) from ${selectedGroups.size} group(s)`);
+
+                // Clear selection and reload
+                selectedGroups.clear();
+                await loadGroups();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Clean a group
+        async function cleanGroup(groupIdx) {
+            const group = groups[groupIdx];
+            const paths = getRemovePaths(groupIdx);
+
+            if (paths.length === 0) {
+                showToast('No duplicates to delete', 'error');
+                return;
+            }
+
+            if (!confirm(`Delete ${paths.length} duplicate(s) from Group #${group.id}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/clean', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ paths })
+                });
+
+                if (!response.ok) throw new Error('Failed to clean');
+
+                const result = await response.json();
+                const deleted = result.results.filter(r => r.status === 'deleted').length;
+
+                showToast(`Deleted ${deleted} file(s)`);
+
+                // Reload groups
+                await loadGroups();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Modal functions
+        function openModal(encodedPath, imgData) {
+            const path = decodeURIComponent(encodedPath);
+            document.getElementById('modal-image').src = '/api/image?path=' + encodedPath;
+            document.getElementById('modal-info').innerHTML = `
+                <div><strong>${getFilename(path)}</strong></div>
+                <div>${imgData.width}x${imgData.height} | ${imgData.format.toUpperCase()} | ${formatSize(imgData.file_size)}</div>
+                <div>Score: ${Math.round(imgData.score)}</div>
+            `;
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target.id === 'modal') closeModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initialize
+        connectWebSocket();
+        loadGroups();
+    </script>
+</body>
+</html>
