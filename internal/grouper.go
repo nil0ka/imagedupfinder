@@ -22,7 +22,8 @@ func NewPerceptualMatcher(threshold int) *PerceptualMatcher {
 	return &PerceptualMatcher{threshold: threshold}
 }
 
-// FindGroups finds groups of similar images based on Hamming distance
+// FindGroups finds groups of similar images based on Hamming distance.
+// Uses BK-Tree for O(n log n) average-case performance instead of O(n²).
 func (m *PerceptualMatcher) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 	n := len(images)
 	if n < 2 {
@@ -32,15 +33,17 @@ func (m *PerceptualMatcher) FindGroups(images []*ImageInfo) []*DuplicateGroup {
 	// Use Union-Find to group similar images
 	uf := newUnionFind(n)
 
-	// Compare all pairs (O(n²) but necessary for correctness)
-	// For very large sets, consider using LSH or VP-Tree
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			dist := HammingDistance(images[i].Hash, images[j].Hash)
-			if dist <= m.threshold {
-				uf.union(i, j)
-			}
+	// Use BK-Tree for efficient similarity search
+	tree := NewBKTree(HammingDistance)
+
+	for i, img := range images {
+		// Find all existing images within threshold distance
+		neighbors := tree.FindWithinDistance(img.Hash, m.threshold)
+		for _, j := range neighbors {
+			uf.union(i, j)
 		}
+		// Add current image to tree
+		tree.Insert(img.Hash, i)
 	}
 
 	// Collect groups
