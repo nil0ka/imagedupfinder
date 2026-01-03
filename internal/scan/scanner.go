@@ -1,4 +1,4 @@
-package internal
+package scan
 
 import (
 	"fmt"
@@ -7,21 +7,24 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"imagedupfinder/internal/hash"
+	"imagedupfinder/internal/models"
 )
 
 // Scanner scans folders for images and computes hashes
 type Scanner struct {
-	hasher     *Hasher
+	hasher     *hash.Hasher
 	workers    int
 	timeout    time.Duration
 	progressFn func(scanned, total int, current string)
 }
 
-// ScannerOption configures a Scanner
-type ScannerOption func(*Scanner)
+// Option configures a Scanner
+type Option func(*Scanner)
 
 // WithWorkers sets the number of parallel workers
-func WithWorkers(n int) ScannerOption {
+func WithWorkers(n int) Option {
 	return func(s *Scanner) {
 		if n > 0 {
 			s.workers = n
@@ -30,23 +33,23 @@ func WithWorkers(n int) ScannerOption {
 }
 
 // WithTimeout sets the timeout for hashing each image
-func WithTimeout(d time.Duration) ScannerOption {
+func WithTimeout(d time.Duration) Option {
 	return func(s *Scanner) {
 		s.timeout = d
 	}
 }
 
 // WithProgress sets a progress callback
-func WithProgress(fn func(scanned, total int, current string)) ScannerOption {
+func WithProgress(fn func(scanned, total int, current string)) Option {
 	return func(s *Scanner) {
 		s.progressFn = fn
 	}
 }
 
 // NewScanner creates a new Scanner
-func NewScanner(opts ...ScannerOption) *Scanner {
+func NewScanner(opts ...Option) *Scanner {
 	s := &Scanner{
-		hasher:  NewHasher(),
+		hasher:  hash.NewHasher(),
 		workers: 8,
 		timeout: 30 * time.Second,
 	}
@@ -57,7 +60,7 @@ func NewScanner(opts ...ScannerOption) *Scanner {
 }
 
 // ScanFolder scans a folder for images and returns their info
-func (s *Scanner) ScanFolder(folder string) ([]*ImageInfo, error) {
+func (s *Scanner) ScanFolder(folder string) ([]*models.ImageInfo, error) {
 	// First, collect all image paths
 	var paths []string
 	err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
@@ -67,7 +70,7 @@ func (s *Scanner) ScanFolder(folder string) ([]*ImageInfo, error) {
 		if info.IsDir() {
 			return nil
 		}
-		if IsSupportedImage(path) {
+		if hash.IsSupportedImage(path) {
 			paths = append(paths, path)
 		}
 		return nil
@@ -82,7 +85,7 @@ func (s *Scanner) ScanFolder(folder string) ([]*ImageInfo, error) {
 
 	// Process images in parallel
 	var (
-		results   []*ImageInfo
+		results   []*models.ImageInfo
 		resultsMu sync.Mutex
 		wg        sync.WaitGroup
 		scanned   int64
@@ -127,8 +130,8 @@ func (s *Scanner) ScanFolder(folder string) ([]*ImageInfo, error) {
 }
 
 // ScanFolders scans multiple folders
-func (s *Scanner) ScanFolders(folders []string) ([]*ImageInfo, error) {
-	var allResults []*ImageInfo
+func (s *Scanner) ScanFolders(folders []string) ([]*models.ImageInfo, error) {
+	var allResults []*models.ImageInfo
 	for _, folder := range folders {
 		results, err := s.ScanFolder(folder)
 		if err != nil {

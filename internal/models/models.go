@@ -1,4 +1,4 @@
-package internal
+package models
 
 import "time"
 
@@ -20,18 +20,18 @@ type ImageInfo struct {
 
 // DuplicateGroup represents a group of similar images
 type DuplicateGroup struct {
-	ID      int          `json:"id"`
-	Images  []*ImageInfo `json:"images"`
-	Keep    *ImageInfo   `json:"keep"`    // Image to keep (highest score)
-	Remove  []*ImageInfo `json:"remove"`  // Images to remove
+	ID     int          `json:"id"`
+	Images []*ImageInfo `json:"images"`
+	Keep   *ImageInfo   `json:"keep"`   // Image to keep (highest score)
+	Remove []*ImageInfo `json:"remove"` // Images to remove
 }
 
 // ScanResult holds the result of a folder scan
 type ScanResult struct {
-	TotalScanned   int              `json:"total_scanned"`
-	TotalGroups    int              `json:"total_groups"`
-	TotalDuplicates int             `json:"total_duplicates"`
-	Groups         []*DuplicateGroup `json:"groups"`
+	TotalScanned    int               `json:"total_scanned"`
+	TotalGroups     int               `json:"total_groups"`
+	TotalDuplicates int               `json:"total_duplicates"`
+	Groups          []*DuplicateGroup `json:"groups"`
 }
 
 // FormatQualityMultiplier returns quality multiplier for image format

@@ -1,6 +1,6 @@
 //go:build windows
 
-package internal
+package fileutil
 
 import (
 	"fmt"
@@ -15,24 +15,24 @@ var (
 )
 
 const (
-	foDelete           = 3
-	fofAllowUndo       = 0x40
-	fofNoConfirmation  = 0x10
-	fofSilent          = 0x4
-	fofNoErrorUI       = 0x400
+	foDelete          = 3
+	fofAllowUndo      = 0x40
+	fofNoConfirmation = 0x10
+	fofSilent         = 0x4
+	fofNoErrorUI      = 0x400
 )
 
 // SHFILEOPSTRUCTW represents the Windows SHFILEOPSTRUCT structure.
 // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shfileopstructw
 type shFileOpStructW struct {
-	Hwnd                  uintptr
-	Func                  uint32
-	From                  *uint16
-	To                    *uint16
-	Flags                 uint16
-	AnyOperationsAborted  int32
-	NameMappings          uintptr
-	ProgressTitle         *uint16
+	Hwnd                 uintptr
+	Func                 uint32
+	From                 *uint16
+	To                   *uint16
+	Flags                uint16
+	AnyOperationsAborted int32
+	NameMappings         uintptr
+	ProgressTitle        *uint16
 }
 
 // moveToWindowsTrash moves a file to the Windows Recycle Bin.

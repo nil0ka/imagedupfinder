@@ -8,7 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"imagedupfinder/internal"
+	"imagedupfinder/internal/fileutil"
+	"imagedupfinder/internal/models"
+	"imagedupfinder/internal/storage"
 )
 
 var (
@@ -54,7 +56,7 @@ func init() {
 }
 
 func runClean(cmd *cobra.Command, args []string) error {
-	store, err := internal.NewStorage(dbPath)
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -77,7 +79,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 			groupIDSet[id] = true
 		}
 
-		var filtered []*internal.DuplicateGroup
+		var filtered []*models.DuplicateGroup
 		for _, group := range groups {
 			if groupIDSet[group.ID] {
 				filtered = append(filtered, group)
@@ -159,11 +161,11 @@ func runClean(cmd *cobra.Command, args []string) error {
 	for _, path := range toRemove {
 		var err error
 		if moveTo != "" {
-			err = internal.MoveFile(path, moveTo)
+			err = fileutil.MoveFile(path, moveTo)
 		} else if permanent {
 			err = os.Remove(path)
 		} else {
-			err = internal.MoveToTrash(path)
+			err = fileutil.MoveToTrash(path)
 		}
 
 		if err != nil {

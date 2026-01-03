@@ -7,7 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"imagedupfinder/internal"
+	"imagedupfinder/internal/models"
+	"imagedupfinder/internal/storage"
 )
 
 var (
@@ -47,7 +48,7 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	store, err := internal.NewStorage(dbPath)
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -121,7 +122,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func printSummaryTable(groups []*internal.DuplicateGroup) {
+func printSummaryTable(groups []*models.DuplicateGroup) {
 	fmt.Printf("%-8s  %-8s  %-12s  %s\n", "Group", "Images", "Reclaimable", "Keep (best quality)")
 	fmt.Println(strings.Repeat("-", 70))
 
@@ -142,7 +143,7 @@ func printSummaryTable(groups []*internal.DuplicateGroup) {
 	fmt.Println()
 }
 
-func printGroup(group *internal.DuplicateGroup, verbose bool) {
+func printGroup(group *models.DuplicateGroup, verbose bool) {
 	fmt.Printf("Group #%d (%d images)\n", group.ID, len(group.Images))
 	fmt.Println(strings.Repeat("-", 60))
 

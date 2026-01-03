@@ -1,4 +1,4 @@
-package internal
+package storage
 
 import (
 	"database/sql"
@@ -8,6 +8,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"imagedupfinder/internal/models"
 )
 
 // Storage handles persistence of image hashes and duplicate groups
@@ -183,7 +185,7 @@ func (s *Storage) Close() error {
 }
 
 // SaveImages saves or updates multiple images
-func (s *Storage) SaveImages(images []*ImageInfo) error {
+func (s *Storage) SaveImages(images []*models.ImageInfo) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -228,7 +230,7 @@ func (s *Storage) SaveImages(images []*ImageInfo) error {
 }
 
 // GetAllImages returns all stored images
-func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
+func (s *Storage) GetAllImages() ([]*models.ImageInfo, error) {
 	rows, err := s.db.Query(`
 		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
 		FROM images
@@ -239,9 +241,9 @@ func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
 	}
 	defer rows.Close()
 
-	var images []*ImageInfo
+	var images []*models.ImageInfo
 	for rows.Next() {
-		img := &ImageInfo{}
+		img := &models.ImageInfo{}
 		var modTime string
 		var hashInt int64
 		var hasExifInt int
@@ -274,7 +276,7 @@ func (s *Storage) GetAllImages() ([]*ImageInfo, error) {
 }
 
 // UpdateGroups updates group IDs for images
-func (s *Storage) UpdateGroups(groups []*DuplicateGroup) error {
+func (s *Storage) UpdateGroups(groups []*models.DuplicateGroup) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -306,7 +308,7 @@ func (s *Storage) UpdateGroups(groups []*DuplicateGroup) error {
 }
 
 // GetImagesByGroupID returns images in a specific group
-func (s *Storage) GetImagesByGroupID(groupID int) ([]*ImageInfo, error) {
+func (s *Storage) GetImagesByGroupID(groupID int) ([]*models.ImageInfo, error) {
 	rows, err := s.db.Query(`
 		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
 		FROM images
@@ -318,9 +320,9 @@ func (s *Storage) GetImagesByGroupID(groupID int) ([]*ImageInfo, error) {
 	}
 	defer rows.Close()
 
-	var images []*ImageInfo
+	var images []*models.ImageInfo
 	for rows.Next() {
-		img := &ImageInfo{}
+		img := &models.ImageInfo{}
 		var modTime string
 		var hashInt int64
 		var hasExifInt int
@@ -375,7 +377,7 @@ func (s *Storage) GetGroupCount() (int, error) {
 }
 
 // GetDuplicateGroups returns all duplicate groups with their images
-func (s *Storage) GetDuplicateGroups() ([]*DuplicateGroup, error) {
+func (s *Storage) GetDuplicateGroups() ([]*models.DuplicateGroup, error) {
 	// Get distinct group IDs
 	rows, err := s.db.Query("SELECT DISTINCT group_id FROM images WHERE group_id > 0 ORDER BY group_id")
 	if err != nil {
@@ -393,7 +395,7 @@ func (s *Storage) GetDuplicateGroups() ([]*DuplicateGroup, error) {
 	}
 
 	// Build groups
-	var groups []*DuplicateGroup
+	var groups []*models.DuplicateGroup
 	for _, id := range groupIDs {
 		images, err := s.GetImagesByGroupID(id)
 		if err != nil {
@@ -404,7 +406,7 @@ func (s *Storage) GetDuplicateGroups() ([]*DuplicateGroup, error) {
 			continue
 		}
 
-		group := &DuplicateGroup{
+		group := &models.DuplicateGroup{
 			ID:     id,
 			Images: images,
 			Keep:   images[0], // Already sorted by score DESC

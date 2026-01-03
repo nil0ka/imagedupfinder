@@ -8,7 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"imagedupfinder/internal"
+	"imagedupfinder/internal/hash"
+	"imagedupfinder/internal/match"
+	"imagedupfinder/internal/scan"
+	"imagedupfinder/internal/storage"
 )
 
 var exactMode bool
@@ -64,7 +67,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workers: %d\n\n", workers)
 
 	// Initialize storage
-	store, err := internal.NewStorage(dbPath)
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -72,9 +75,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Create scanner with progress reporting
 	lastLine := ""
-	s := internal.NewScanner(
-		internal.WithWorkers(workers),
-		internal.WithProgress(func(scanned, total int, current string) {
+	s := scan.NewScanner(
+		scan.WithWorkers(workers),
+		scan.WithProgress(func(scanned, total int, current string) {
 			// Clear previous line
 			if lastLine != "" {
 				fmt.Print("\r" + strings.Repeat(" ", len(lastLine)) + "\r")
@@ -110,9 +113,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if exactMode {
 		fmt.Println("Computing file hashes...")
 		for _, img := range images {
-			hash, err := internal.ComputeFileHash(img.Path)
+			fileHash, err := hash.ComputeFileHash(img.Path)
 			if err == nil {
-				img.FileHash = hash
+				img.FileHash = fileHash
 			}
 		}
 	}
@@ -124,11 +127,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// Find duplicate groups
 	fmt.Println("Finding duplicates...")
-	var matcher internal.Matcher
+	var matcher match.Matcher
 	if exactMode {
-		matcher = internal.NewExactMatcher()
+		matcher = match.NewExactMatcher()
 	} else {
-		matcher = internal.NewPerceptualMatcher(threshold)
+		matcher = match.NewPerceptualMatcher(threshold)
 	}
 	groups := matcher.FindGroups(images)
 

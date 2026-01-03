@@ -13,7 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"imagedupfinder/internal"
+	"imagedupfinder/internal/fileutil"
+	"imagedupfinder/internal/storage"
 )
 
 //go:embed static/*
@@ -21,7 +22,7 @@ var staticFiles embed.FS
 
 // Server represents the web server
 type Server struct {
-	storage     *internal.Storage
+	storage     *storage.Storage
 	port        int
 	idleTimeout time.Duration
 	httpServer  *http.Server
@@ -36,13 +37,13 @@ type Server struct {
 
 // New creates a new Server
 func New(dbPath string, port int, idleTimeout time.Duration) (*Server, error) {
-	storage, err := internal.NewStorage(dbPath)
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		storage:      storage,
+		storage:      store,
 		port:         port,
 		idleTimeout:  idleTimeout,
 		lastActivity: time.Now(),
@@ -199,7 +200,7 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 			result["status"] = "not_found"
 		} else if req.MoveTo != "" {
 			// Move file
-			err := internal.MoveFile(path, req.MoveTo)
+			err := fileutil.MoveFile(path, req.MoveTo)
 			if err != nil {
 				result["error"] = err.Error()
 			} else {
@@ -217,7 +218,7 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Move to trash (default)
-			err := internal.MoveToTrash(path)
+			err := fileutil.MoveToTrash(path)
 			if err != nil {
 				result["error"] = err.Error()
 			} else {

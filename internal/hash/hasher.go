@@ -1,4 +1,4 @@
-package internal
+package hash
 
 import (
 	"crypto/sha256"
@@ -17,6 +17,8 @@ import (
 	"github.com/corona10/goimagehash"
 	"github.com/rwcarlsen/goexif/exif"
 	_ "golang.org/x/image/webp"
+
+	"imagedupfinder/internal/models"
 )
 
 // Hasher computes perceptual hashes for images
@@ -28,7 +30,7 @@ func NewHasher() *Hasher {
 }
 
 // HashImage computes the perceptual hash and extracts metadata for an image
-func (h *Hasher) HashImage(path string) (*ImageInfo, error) {
+func (h *Hasher) HashImage(path string) (*models.ImageInfo, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -60,7 +62,7 @@ func (h *Hasher) HashImage(path string) (*ImageInfo, error) {
 	width := bounds.Max.X - bounds.Min.X
 	height := bounds.Max.Y - bounds.Min.Y
 
-	info := &ImageInfo{
+	info := &models.ImageInfo{
 		Path:     path,
 		Hash:     hash.GetHash(),
 		Width:    width,
@@ -90,15 +92,15 @@ func checkExif(path string) bool {
 }
 
 // CalculateScore computes the quality score for an image
-func (h *Hasher) CalculateScore(info *ImageInfo) float64 {
+func (h *Hasher) CalculateScore(info *models.ImageInfo) float64 {
 	// Base score: resolution (width * height)
 	resolution := float64(info.Width * info.Height)
 
 	// Apply format quality multiplier
-	formatMultiplier := FormatQualityMultiplier(info.Format)
+	formatMultiplier := models.FormatQualityMultiplier(info.Format)
 
 	// Apply metadata multiplier (prefer images with EXIF)
-	metadataMultiplier := MetadataMultiplier(info.HasExif)
+	metadataMultiplier := models.MetadataMultiplier(info.HasExif)
 
 	return resolution * formatMultiplier * metadataMultiplier
 }
@@ -142,9 +144,9 @@ func HammingDistance(hash1, hash2 uint64) int {
 }
 
 // HashImageWithTimeout hashes an image with a timeout
-func (h *Hasher) HashImageWithTimeout(path string, timeout time.Duration) (*ImageInfo, error) {
+func (h *Hasher) HashImageWithTimeout(path string, timeout time.Duration) (*models.ImageInfo, error) {
 	done := make(chan struct{})
-	var info *ImageInfo
+	var info *models.ImageInfo
 	var err error
 
 	go func() {
