@@ -207,12 +207,18 @@ imagedupfinder/
 │   ├── clean.go     # clean コマンド
 │   └── serve.go     # serve コマンド (Web UI)
 └── internal/
-    ├── models.go    # データ構造
-    ├── hasher.go    # pHash 計算
-    ├── scanner.go   # 並列スキャン
-    ├── grouper.go   # 重複グループ検出 (Union-Find)
-    ├── storage.go   # SQLite 永続化
-    ├── fileutil.go  # ファイル操作ユーティリティ
+    ├── models/      # データ構造 (ImageInfo, DuplicateGroup)
+    ├── hash/        # pHash 計算、EXIF 検出、ファイルハッシュ
+    ├── match/       # 重複グループ検出 (BK-Tree + Union-Find)
+    │   ├── matcher.go      # Matcher interface
+    │   ├── perceptual.go   # PerceptualMatcher (類似検出)
+    │   └── exact.go        # ExactMatcher (完全一致)
+    ├── scan/        # 並列スキャン (functional options)
+    ├── storage/     # SQLite 永続化 (マイグレーション対応)
+    ├── fileutil/    # ファイル操作ユーティリティ
+    │   ├── fileutil.go           # MoveFile, MoveToTrash
+    │   ├── fileutil_windows.go   # Windows Recycle Bin
+    │   └── fileutil_notwindows.go
     └── server/      # Web UI サーバー
         ├── server.go
         ├── websocket.go
