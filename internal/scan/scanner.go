@@ -18,6 +18,7 @@ type Scanner struct {
 	workers    int
 	timeout    time.Duration
 	progressFn func(scanned, total int, current string)
+	known      map[string]*models.ImageInfo
 }
 
 // Option configures a Scanner
@@ -43,6 +44,15 @@ func WithTimeout(d time.Duration) Option {
 func WithProgress(fn func(scanned, total int, current string)) Option {
 	return func(s *Scanner) {
 		s.progressFn = fn
+	}
+}
+
+// WithKnownImages provides previously scanned results keyed by path. Files
+// whose size and modification time still match their entry are not re-hashed;
+// the stored entry is returned as-is.
+func WithKnownImages(known map[string]*models.ImageInfo) Option {
+	return func(s *Scanner) {
+		s.known = known
 	}
 }
 
@@ -110,11 +120,15 @@ func (s *Scanner) ScanFolder(folder string) ([]*models.ImageInfo, error) {
 		go func() {
 			defer wg.Done()
 			for path := range work {
-				info, err := s.hasher.HashImageWithTimeout(path, s.timeout)
-				if err != nil {
-					// Skip failed images silently
-					atomic.AddInt64(&scanned, 1)
-					continue
+				info := s.cachedInfo(path)
+				if info == nil {
+					var err error
+					info, err = s.hasher.HashImageWithTimeout(path, s.timeout)
+					if err != nil {
+						// Skip failed images silently
+						atomic.AddInt64(&scanned, 1)
+						continue
+					}
 				}
 
 				resultsMu.Lock()
@@ -132,6 +146,20 @@ func (s *Scanner) ScanFolder(folder string) ([]*models.ImageInfo, error) {
 	wg.Wait()
 
 	return results, nil
+}
+
+// cachedInfo returns the known entry for path if the file on disk still has
+// the same size and modification time, or nil if it must be (re-)hashed.
+func (s *Scanner) cachedInfo(path string) *models.ImageInfo {
+	prev, ok := s.known[path]
+	if !ok {
+		return nil
+	}
+	stat, err := os.Stat(path)
+	if err != nil || stat.Size() != prev.FileSize || !stat.ModTime().Equal(prev.ModTime) {
+		return nil
+	}
+	return prev
 }
 
 // ScanFolders scans multiple folders

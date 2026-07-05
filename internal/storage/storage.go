@@ -260,8 +260,20 @@ func scanImageRow(rows *sql.Rows) (*models.ImageInfo, error) {
 	img.Hash = uint64(hashInt)
 	img.FileHash = fileHash.String
 	img.HasExif = hasExifInt == 1
-	img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
+	img.ModTime = parseModTime(modTime)
 	return img, nil
+}
+
+// parseModTime parses a stored mod_time value. The modernc.org/sqlite driver
+// stores time.Time as RFC3339Nano, which must round-trip exactly: incremental
+// scans compare it against the file's current modification time to decide
+// whether re-hashing can be skipped.
+func parseModTime(s string) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
+	}
+	t, _ := time.Parse("2006-01-02 15:04:05", s)
+	return t
 }
 
 // queryImages runs a query selecting imageColumns and returns the scanned images.

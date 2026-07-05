@@ -759,7 +759,7 @@
                                         ${isKeep ? 'KEEP' : 'DELETE'}
                                     </span>
                                     <div class="image-wrapper" onclick="openModal(${idx}, ${imgIdx})">
-                                        <img src="/api/image?path=${encodeURIComponent(img.path)}"
+                                        <img src="/api/thumbnail?path=${encodeURIComponent(img.path)}"
                                              alt="${getFilename(img.path)}"
                                              loading="lazy"
                                              onerror="this.parentElement.innerHTML='<div class=\\'not-found\\'>File not found</div>'">
@@ -1006,7 +1006,15 @@
             if (!img) return;
 
             const encodedPath = encodeURIComponent(img.path);
-            document.getElementById('modal-image').src = '/api/image?path=' + encodedPath;
+            const modalImg = document.getElementById('modal-image');
+            // Full-resolution first; fall back to a large server-rendered
+            // thumbnail for formats the browser cannot decode (e.g. TIFF).
+            modalImg.onerror = () => {
+                if (!modalImg.src.includes('/api/thumbnail')) {
+                    modalImg.src = '/api/thumbnail?path=' + encodedPath + '&size=2048';
+                }
+            };
+            modalImg.src = '/api/image?path=' + encodedPath;
             document.getElementById('modal-info').innerHTML = `
                 <div><strong>${getFilename(img.path)}</strong></div>
                 <div>${img.width}x${img.height} | ${img.format.toUpperCase()} | ${formatSize(img.file_size)}</div>

@@ -4,18 +4,18 @@ import "time"
 
 // ImageInfo holds metadata and hash information for an image
 type ImageInfo struct {
-	ID        int64     `json:"id"`
-	Path      string    `json:"path"`
-	Hash      uint64    `json:"hash"`
-	FileHash  string    `json:"file_hash,omitempty"` // SHA256 hash for exact matching
-	Width     int       `json:"width"`
-	Height    int       `json:"height"`
-	Format    string    `json:"format"`
-	FileSize  int64     `json:"file_size"`
-	ModTime   time.Time `json:"mod_time"`
-	HasExif   bool      `json:"has_exif"`
-	Score     float64   `json:"score"`
-	GroupID   int       `json:"group_id,omitempty"`
+	ID       int64     `json:"id"`
+	Path     string    `json:"path"`
+	Hash     uint64    `json:"hash"`
+	FileHash string    `json:"file_hash,omitempty"` // SHA256 hash for exact matching
+	Width    int       `json:"width"`
+	Height   int       `json:"height"`
+	Format   string    `json:"format"`
+	FileSize int64     `json:"file_size"`
+	ModTime  time.Time `json:"mod_time"`
+	HasExif  bool      `json:"has_exif"`
+	Score    float64   `json:"score"`
+	GroupID  int       `json:"group_id,omitempty"`
 }
 
 // DuplicateGroup represents a group of similar images

@@ -419,3 +419,46 @@ func TestMigrations(t *testing.T) {
 		t.Errorf("schema version after reopen = %d, want %d", version2, schemaVersion)
 	}
 }
+
+func TestSaveImages_ModTimeRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := NewStorage(dbPath)
+	if err != nil {
+		t.Fatalf("NewStorage failed: %v", err)
+	}
+	defer store.Close()
+
+	// Incremental scans compare stored ModTime against file stat, so the
+	// value must survive a save/load cycle exactly (including sub-second
+	// precision and timezone).
+	modTime := time.Date(2026, 7, 5, 12, 34, 56, 789012345, time.Local)
+	images := []*models.ImageInfo{
+		{
+			Path:     "/path/to/image.jpg",
+			Hash:     1,
+			Width:    100,
+			Height:   100,
+			Format:   "jpeg",
+			FileSize: 1000,
+			ModTime:  modTime,
+			Score:    10000,
+		},
+	}
+
+	if err := store.SaveImages(images); err != nil {
+		t.Fatalf("SaveImages failed: %v", err)
+	}
+
+	retrieved, err := store.GetAllImages()
+	if err != nil {
+		t.Fatalf("GetAllImages failed: %v", err)
+	}
+	if len(retrieved) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(retrieved))
+	}
+	if !retrieved[0].ModTime.Equal(modTime) {
+		t.Errorf("ModTime = %v, want %v", retrieved[0].ModTime, modTime)
+	}
+}

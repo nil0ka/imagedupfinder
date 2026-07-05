@@ -28,6 +28,7 @@ type Server struct {
 	port        int
 	idleTimeout time.Duration
 	httpServer  *http.Server
+	thumbs      *thumbCache
 
 	// Idle timeout management
 	mu            sync.Mutex
@@ -48,6 +49,7 @@ func New(dbPath string, port int, idleTimeout time.Duration) (*Server, error) {
 		storage:      store,
 		port:         port,
 		idleTimeout:  idleTimeout,
+		thumbs:       newThumbCache(thumbCacheBudget),
 		lastActivity: time.Now(),
 		tabActive:    false,
 		shutdownChan: make(chan struct{}),
@@ -64,6 +66,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/groups", s.handleGroups)
 	mux.HandleFunc("/api/clean", s.handleClean)
 	mux.HandleFunc("/api/image", s.handleImage)
+	mux.HandleFunc("/api/thumbnail", s.handleThumbnail)
 
 	// WebSocket for connection monitoring
 	mux.HandleFunc("/ws", s.handleWebSocket)

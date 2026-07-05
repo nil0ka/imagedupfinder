@@ -10,11 +10,15 @@ import (
 
 	"imagedupfinder/internal/hash"
 	"imagedupfinder/internal/match"
+	"imagedupfinder/internal/models"
 	"imagedupfinder/internal/scan"
 	"imagedupfinder/internal/storage"
 )
 
-var exactMode bool
+var (
+	exactMode  bool
+	fullRescan bool
+)
 
 var scanCmd = &cobra.Command{
 	Use:   "scan <folder>",
@@ -27,10 +31,16 @@ The scan will:
 3. Group similar images based on hash distance (or exact match with --exact)
 4. Store results in the database for later use
 
+Files already in the database whose size and modification time are unchanged
+are not re-hashed, so re-scanning a large folder is fast. Use --full to force
+re-hashing everything. Database entries for files that no longer exist under
+the scanned folder are removed automatically.
+
 Example:
   imagedupfinder scan ./photos
   imagedupfinder scan /path/to/images --threshold 5
-  imagedupfinder scan ./photos --exact  # Find only byte-identical duplicates`,
+  imagedupfinder scan ./photos --exact  # Find only byte-identical duplicates
+  imagedupfinder scan ./photos --full   # Re-hash all files, ignore cache`,
 	Args: cobra.ExactArgs(1),
 	RunE: runScan,
 }
@@ -38,6 +48,7 @@ Example:
 func init() {
 	rootCmd.AddCommand(scanCmd)
 	scanCmd.Flags().BoolVar(&exactMode, "exact", false, "Use exact file hash matching instead of perceptual hashing")
+	scanCmd.Flags().BoolVar(&fullRescan, "full", false, "Re-hash all files instead of skipping unchanged ones")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -73,9 +84,20 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
+	// Load previous results so unchanged files can skip re-hashing and stale
+	// entries for deleted files can be pruned.
+	knownImages, err := store.GetAllImages()
+	if err != nil {
+		return fmt.Errorf("failed to load previous scan results: %w", err)
+	}
+	knownByPath := make(map[string]*models.ImageInfo, len(knownImages))
+	for _, img := range knownImages {
+		knownByPath[img.Path] = img
+	}
+
 	// Create scanner with progress reporting
 	lastLine := ""
-	s := scan.NewScanner(
+	opts := []scan.Option{
 		scan.WithWorkers(workers),
 		scan.WithProgress(func(scanned, total int, current string) {
 			// Clear previous line
@@ -89,7 +111,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 			lastLine = fmt.Sprintf("Progress: %d/%d  %s", scanned, total, shortPath)
 			fmt.Print(lastLine)
 		}),
-	)
+	}
+	if !fullRescan {
+		opts = append(opts, scan.WithKnownImages(knownByPath))
+	}
+	s := scan.NewScanner(opts...)
 
 	// Scan folder
 	images, err := s.ScanFolder(absFolder)
@@ -102,17 +128,53 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Print("\r" + strings.Repeat(" ", len(lastLine)) + "\r")
 	}
 
-	fmt.Printf("Scanned: %d images\n", len(images))
+	// Reused entries are the exact pointers handed to the scanner via the
+	// known-images map; anything else was freshly hashed.
+	reused := 0
+	scannedPaths := make(map[string]bool, len(images))
+	for _, img := range images {
+		scannedPaths[img.Path] = true
+		if knownByPath[img.Path] == img {
+			reused++
+		}
+	}
+
+	fmt.Printf("Scanned: %d images", len(images))
+	if reused > 0 {
+		fmt.Printf(" (%d unchanged, skipped re-hashing)", reused)
+	}
+	fmt.Println()
+
+	// Prune entries for files under this folder that no longer exist on disk,
+	// so deleted files don't linger in list/serve output.
+	pruned := 0
+	prefix := absFolder + string(os.PathSeparator)
+	for _, img := range knownImages {
+		if scannedPaths[img.Path] || !strings.HasPrefix(img.Path, prefix) {
+			continue
+		}
+		if _, err := os.Stat(img.Path); os.IsNotExist(err) {
+			if store.DeleteImage(img.Path) == nil {
+				pruned++
+			}
+		}
+	}
+	if pruned > 0 {
+		fmt.Printf("Pruned: %d missing files removed from database\n", pruned)
+	}
 
 	if len(images) == 0 {
 		fmt.Println("No images found.")
 		return nil
 	}
 
-	// Compute file hashes if in exact mode
+	// Compute file hashes if in exact mode (reused entries may already have one)
 	if exactMode {
 		fmt.Println("Computing file hashes...")
 		for _, img := range images {
+			if img.FileHash != "" {
+				continue
+			}
 			fileHash, err := hash.ComputeFileHash(img.Path)
 			if err == nil {
 				img.FileHash = fileHash
