@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sync"
@@ -74,8 +76,10 @@ func (s *Server) Start() error {
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
 	s.httpServer = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: mux,
+		// Bind to loopback only: this server can read and delete local files,
+		// so it must never be reachable from other machines.
+		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
+		Handler: s.requireLocalOrigin(mux),
 	}
 
 	// Start idle timeout checker
@@ -154,6 +158,40 @@ func (s *Server) setTabActive(active bool) {
 	s.mu.Unlock()
 }
 
+// isLoopbackHost reports whether a host (optionally host:port) refers to the
+// local machine.
+func isLoopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// requireLocalOrigin rejects requests whose Host header is not local
+// (DNS rebinding) or whose Origin header is from another site (CSRF).
+// This also guards the WebSocket handshake.
+func (s *Server) requireLocalOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackHost(r.Host) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			u, err := url.Parse(origin)
+			if err != nil || !isLoopbackHost(u.Host) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // API Handlers
 
 func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +217,6 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Paths     []string `json:"paths"`
-		MoveTo    string   `json:"move_to,omitempty"`
 		Permanent bool     `json:"permanent,omitempty"`
 	}
 
@@ -192,21 +229,24 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 
 	for _, path := range req.Paths {
 		result := map[string]interface{}{"path": path}
+		results = append(results, result)
 
-		// Check if file exists
+		// Only operate on files this tool has scanned; otherwise the API
+		// could be used to delete arbitrary files on the machine.
+		known, err := s.storage.ImageExists(path)
+		if err != nil {
+			result["error"] = err.Error()
+			continue
+		}
+		if !known {
+			result["error"] = "path is not a scanned image"
+			continue
+		}
+
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			// File doesn't exist, just remove from DB
 			s.storage.DeleteImage(path)
 			result["status"] = "not_found"
-		} else if req.MoveTo != "" {
-			// Move file
-			err := fileutil.MoveFile(path, req.MoveTo)
-			if err != nil {
-				result["error"] = err.Error()
-			} else {
-				result["status"] = "moved"
-				s.storage.DeleteImage(path)
-			}
 		} else if req.Permanent {
 			// Delete file permanently
 			err := os.Remove(path)
@@ -226,8 +266,6 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 				s.storage.DeleteImage(path)
 			}
 		}
-
-		results = append(results, result)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -242,6 +280,18 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+
+	// Only serve files this tool has scanned; otherwise this endpoint would
+	// allow reading arbitrary files on the machine.
+	known, err := s.storage.ImageExists(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !known {
+		http.Error(w, "path is not a scanned image", http.StatusNotFound)
 		return
 	}
 

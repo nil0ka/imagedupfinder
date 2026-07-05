@@ -229,13 +229,44 @@ func (s *Storage) SaveImages(images []*models.ImageInfo) error {
 	return tx.Commit()
 }
 
-// GetAllImages returns all stored images
-func (s *Storage) GetAllImages() ([]*models.ImageInfo, error) {
-	rows, err := s.db.Query(`
-		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
-		FROM images
-		ORDER BY path
-	`)
+// imageColumns is the column list shared by all image queries, in the order
+// expected by scanImageRow.
+const imageColumns = "id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id"
+
+// scanImageRow scans a single row selected with imageColumns.
+func scanImageRow(rows *sql.Rows) (*models.ImageInfo, error) {
+	img := &models.ImageInfo{}
+	var modTime string
+	var hashInt int64
+	var hasExifInt int
+	var fileHash sql.NullString
+	err := rows.Scan(
+		&img.ID,
+		&img.Path,
+		&hashInt,
+		&fileHash,
+		&img.Width,
+		&img.Height,
+		&img.Format,
+		&img.FileSize,
+		&modTime,
+		&hasExifInt,
+		&img.Score,
+		&img.GroupID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+	img.Hash = uint64(hashInt)
+	img.FileHash = fileHash.String
+	img.HasExif = hasExifInt == 1
+	img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
+	return img, nil
+}
+
+// queryImages runs a query selecting imageColumns and returns the scanned images.
+func (s *Storage) queryImages(query string, args ...interface{}) ([]*models.ImageInfo, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query images: %w", err)
 	}
@@ -243,36 +274,22 @@ func (s *Storage) GetAllImages() ([]*models.ImageInfo, error) {
 
 	var images []*models.ImageInfo
 	for rows.Next() {
-		img := &models.ImageInfo{}
-		var modTime string
-		var hashInt int64
-		var hasExifInt int
-		var fileHash sql.NullString
-		err := rows.Scan(
-			&img.ID,
-			&img.Path,
-			&hashInt,
-			&fileHash,
-			&img.Width,
-			&img.Height,
-			&img.Format,
-			&img.FileSize,
-			&modTime,
-			&hasExifInt,
-			&img.Score,
-			&img.GroupID,
-		)
+		img, err := scanImageRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, err
 		}
-		img.Hash = uint64(hashInt)
-		img.FileHash = fileHash.String
-		img.HasExif = hasExifInt == 1
-		img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
 		images = append(images, img)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate rows: %w", err)
 	}
 
 	return images, nil
+}
+
+// GetAllImages returns all stored images
+func (s *Storage) GetAllImages() ([]*models.ImageInfo, error) {
+	return s.queryImages("SELECT " + imageColumns + " FROM images ORDER BY path")
 }
 
 // UpdateGroups updates group IDs for images
@@ -309,49 +326,20 @@ func (s *Storage) UpdateGroups(groups []*models.DuplicateGroup) error {
 
 // GetImagesByGroupID returns images in a specific group
 func (s *Storage) GetImagesByGroupID(groupID int) ([]*models.ImageInfo, error) {
-	rows, err := s.db.Query(`
-		SELECT id, path, hash, file_hash, width, height, format, file_size, mod_time, has_exif, score, group_id
-		FROM images
-		WHERE group_id = ?
-		ORDER BY score DESC
-	`, groupID)
+	return s.queryImages("SELECT "+imageColumns+" FROM images WHERE group_id = ? ORDER BY score DESC", groupID)
+}
+
+// ImageExists reports whether an image with the given path is registered.
+func (s *Storage) ImageExists(path string) (bool, error) {
+	var one int
+	err := s.db.QueryRow("SELECT 1 FROM images WHERE path = ?", path).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query images: %w", err)
+		return false, err
 	}
-	defer rows.Close()
-
-	var images []*models.ImageInfo
-	for rows.Next() {
-		img := &models.ImageInfo{}
-		var modTime string
-		var hashInt int64
-		var hasExifInt int
-		var fileHash sql.NullString
-		err := rows.Scan(
-			&img.ID,
-			&img.Path,
-			&hashInt,
-			&fileHash,
-			&img.Width,
-			&img.Height,
-			&img.Format,
-			&img.FileSize,
-			&modTime,
-			&hasExifInt,
-			&img.Score,
-			&img.GroupID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-		img.Hash = uint64(hashInt)
-		img.FileHash = fileHash.String
-		img.HasExif = hasExifInt == 1
-		img.ModTime, _ = time.Parse("2006-01-02 15:04:05", modTime)
-		images = append(images, img)
-	}
-
-	return images, nil
+	return true, nil
 }
 
 // DeleteImage removes an image from the database
@@ -376,44 +364,34 @@ func (s *Storage) GetGroupCount() (int, error) {
 	return count, err
 }
 
-// GetDuplicateGroups returns all duplicate groups with their images
+// GetDuplicateGroups returns all duplicate groups with their images.
+// A single query fetches all grouped images to avoid one query per group.
 func (s *Storage) GetDuplicateGroups() ([]*models.DuplicateGroup, error) {
-	// Get distinct group IDs
-	rows, err := s.db.Query("SELECT DISTINCT group_id FROM images WHERE group_id > 0 ORDER BY group_id")
+	images, err := s.queryImages("SELECT " + imageColumns + " FROM images WHERE group_id > 0 ORDER BY group_id, score DESC")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var groupIDs []int
-	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+	var groups []*models.DuplicateGroup
+	var current *models.DuplicateGroup
+	for _, img := range images {
+		if current == nil || current.ID != img.GroupID {
+			current = &models.DuplicateGroup{ID: img.GroupID}
+			groups = append(groups, current)
 		}
-		groupIDs = append(groupIDs, id)
+		current.Images = append(current.Images, img)
 	}
 
-	// Build groups
-	var groups []*models.DuplicateGroup
-	for _, id := range groupIDs {
-		images, err := s.GetImagesByGroupID(id)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(images) < 2 {
+	// Keep only real duplicate groups and derive Keep/Remove (sorted by score DESC)
+	var result []*models.DuplicateGroup
+	for _, g := range groups {
+		if len(g.Images) < 2 {
 			continue
 		}
-
-		group := &models.DuplicateGroup{
-			ID:     id,
-			Images: images,
-			Keep:   images[0], // Already sorted by score DESC
-			Remove: images[1:],
-		}
-		groups = append(groups, group)
+		g.Keep = g.Images[0]
+		g.Remove = g.Images[1:]
+		result = append(result, g)
 	}
 
-	return groups, nil
+	return result, nil
 }

@@ -18,6 +18,11 @@ import (
 
 const (
 	wsGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+	// maxWSPayload caps incoming frame size. Clients only send tiny JSON
+	// control messages, so anything larger is a protocol error and must not
+	// trigger a huge allocation.
+	maxWSPayload = 64 * 1024
 )
 
 type wsConn struct {
@@ -185,7 +190,15 @@ func readWSMessage(r *bufio.Reader) ([]byte, error) {
 		if _, err := io.ReadFull(r, lenBytes); err != nil {
 			return nil, err
 		}
-		payloadLen = int(binary.BigEndian.Uint64(lenBytes))
+		len64 := binary.BigEndian.Uint64(lenBytes)
+		if len64 > maxWSPayload {
+			return nil, fmt.Errorf("payload too large: %d", len64)
+		}
+		payloadLen = int(len64)
+	}
+
+	if payloadLen > maxWSPayload {
+		return nil, fmt.Errorf("payload too large: %d", payloadLen)
 	}
 
 	// Read mask key if present

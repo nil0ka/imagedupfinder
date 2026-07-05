@@ -17,6 +17,8 @@ import (
 
 	"github.com/corona10/goimagehash"
 	"github.com/rwcarlsen/goexif/exif"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 
 	"imagedupfinder/internal/models"

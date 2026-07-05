@@ -351,6 +351,40 @@ func TestGetGroupCount(t *testing.T) {
 	}
 }
 
+func TestImageExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := NewStorage(dbPath)
+	if err != nil {
+		t.Fatalf("NewStorage failed: %v", err)
+	}
+	defer store.Close()
+
+	images := []*models.ImageInfo{
+		{Path: "/img1.jpg", Hash: 1, Width: 100, Height: 100, Format: "jpeg", FileSize: 1000, ModTime: time.Now(), Score: 10000},
+	}
+	if err := store.SaveImages(images); err != nil {
+		t.Fatalf("SaveImages failed: %v", err)
+	}
+
+	exists, err := store.ImageExists("/img1.jpg")
+	if err != nil {
+		t.Fatalf("ImageExists failed: %v", err)
+	}
+	if !exists {
+		t.Error("expected /img1.jpg to exist")
+	}
+
+	exists, err = store.ImageExists("/etc/passwd")
+	if err != nil {
+		t.Fatalf("ImageExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected unknown path to not exist")
+	}
+}
+
 func TestMigrations(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
