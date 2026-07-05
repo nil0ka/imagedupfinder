@@ -61,13 +61,15 @@ func NewScanner(opts ...Option) *Scanner {
 
 // ScanFolder scans a folder for images and returns their info
 func (s *Scanner) ScanFolder(folder string) ([]*models.ImageInfo, error) {
-	// First, collect all image paths
+	// First, collect all image paths. WalkDir uses fs.DirEntry and avoids an
+	// os.Lstat syscall per file (unlike filepath.Walk), which is noticeably
+	// faster on large trees.
 	var paths []string
-	err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(folder, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 		if hash.IsSupportedImage(path) {
@@ -85,19 +87,22 @@ func (s *Scanner) ScanFolder(folder string) ([]*models.ImageInfo, error) {
 
 	// Process images in parallel
 	var (
-		results   []*models.ImageInfo
+		results   = make([]*models.ImageInfo, 0, len(paths))
 		resultsMu sync.Mutex
 		wg        sync.WaitGroup
 		scanned   int64
 		total     = len(paths)
 	)
 
-	// Create work channel
-	work := make(chan string, len(paths))
-	for _, p := range paths {
-		work <- p
-	}
-	close(work)
+	// Feed paths through a small bounded channel rather than buffering all of
+	// them at once, keeping memory flat regardless of folder size.
+	work := make(chan string, s.workers)
+	go func() {
+		for _, p := range paths {
+			work <- p
+		}
+		close(work)
+	}()
 
 	// Start workers
 	for i := 0; i < s.workers; i++ {

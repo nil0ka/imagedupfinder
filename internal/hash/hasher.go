@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,8 +44,14 @@ func (h *Hasher) HashImage(path string) (*models.ImageInfo, error) {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
-	// Check for EXIF data (before reading image, as Decode consumes the reader)
-	hasExif := checkExif(path)
+	// Check for EXIF data first (Decode consumes the reader), then rewind so
+	// the same open file handle can be reused for decoding. This avoids a
+	// second os.Open + read of the file just to inspect EXIF.
+	_, exifErr := exif.Decode(file)
+	hasExif := exifErr == nil
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("failed to rewind file: %w", err)
+	}
 
 	// Decode image
 	img, format, err := image.Decode(file)
@@ -77,18 +84,6 @@ func (h *Hasher) HashImage(path string) (*models.ImageInfo, error) {
 	info.Score = h.CalculateScore(info)
 
 	return info, nil
-}
-
-// checkExif checks if an image file contains EXIF data
-func checkExif(path string) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	_, err = exif.Decode(file)
-	return err == nil
 }
 
 // CalculateScore computes the quality score for an image
@@ -132,32 +127,39 @@ func IsSupportedImage(path string) bool {
 	}
 }
 
-// HammingDistance calculates the Hamming distance between two hashes
+// HammingDistance calculates the Hamming distance between two hashes.
+// Uses bits.OnesCount64, which compiles to a single POPCNT instruction on
+// supported CPUs. This is the hottest function in perceptual matching
+// (called for every BK-tree node visited).
 func HammingDistance(hash1, hash2 uint64) int {
-	xor := hash1 ^ hash2
-	count := 0
-	for xor != 0 {
-		count++
-		xor &= xor - 1
-	}
-	return count
+	return bits.OnesCount64(hash1 ^ hash2)
 }
 
-// HashImageWithTimeout hashes an image with a timeout
+// HashImageWithTimeout hashes an image with a timeout.
+//
+// Note: image.Decode is not cancellable, so on timeout the worker goroutine
+// runs to completion in the background. Results are passed over a buffered
+// channel so that late completion neither blocks the goroutine nor races with
+// the caller on shared variables.
 func (h *Hasher) HashImageWithTimeout(path string, timeout time.Duration) (*models.ImageInfo, error) {
-	done := make(chan struct{})
-	var info *models.ImageInfo
-	var err error
+	type result struct {
+		info *models.ImageInfo
+		err  error
+	}
+	done := make(chan result, 1) // buffered: goroutine never blocks even after timeout
 
 	go func() {
-		info, err = h.HashImage(path)
-		close(done)
+		info, err := h.HashImage(path)
+		done <- result{info, err}
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
-	case <-done:
-		return info, err
-	case <-time.After(timeout):
+	case r := <-done:
+		return r.info, r.err
+	case <-timer.C:
 		return nil, fmt.Errorf("timeout hashing image: %s", path)
 	}
 }
