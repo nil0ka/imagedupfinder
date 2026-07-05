@@ -27,7 +27,7 @@ CLI tool for detecting duplicate/similar images using perceptual hashing, writte
 
 ### Core Flow
 
-1. **Scan** (`cmd/scan.go`): Walks folders, hashes images in parallel, groups duplicates, stores in SQLite
+1. **Scan** (`cmd/scan.go`): Walks folders, hashes images in parallel, groups duplicates, stores in SQLite. Incremental by default: files whose size+mtime match the DB skip re-hashing (`--full` to force); DB entries for deleted files are pruned
 2. **List** (`cmd/list.go`): Displays duplicate groups from database (paginated, default 10)
 3. **Clean** (`cmd/clean.go`): Removes lower-quality duplicates (default: trash, `--permanent` for hard delete)
 4. **Serve** (`cmd/serve.go`): Web UI for visual comparison and cleaning
@@ -61,7 +61,7 @@ Dependency graph (no cycles):
 - **Scanner** (`internal/scan/scanner.go`): Parallel folder scanning with configurable workers via functional options pattern
 - **Hasher** (`internal/hash/hasher.go`): Computes pHash using goimagehash library, extracts EXIF, calculates quality scores
 - **Storage** (`internal/storage/storage.go`): SQLite persistence with versioned schema migrations
-- **Server** (`internal/server/`): Embedded web UI with WebSocket for connection monitoring, auto-shutdown on idle
+- **Server** (`internal/server/`): Embedded web UI with WebSocket for connection monitoring, auto-shutdown on idle. `/api/thumbnail` renders downscaled previews server-side (byte-budgeted LRU cache + ETag revalidation, `internal/server/thumbnail.go`); the grid uses thumbnails, the modal loads full images with a thumbnail fallback for browser-undecodable formats (TIFF)
 - **FileUtil** (`internal/fileutil/`): Shared file operations
   - `MoveFile`: Move with collision handling and cross-filesystem support
   - `MoveToTrash`: Platform-specific trash (macOS ~/.Trash, Linux freedesktop.org, Windows Recycle Bin)

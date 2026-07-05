@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"imagedupfinder/internal/models"
 )
 
 func TestNewScanner_Defaults(t *testing.T) {
@@ -266,5 +268,92 @@ func TestScanFolders_Multiple(t *testing.T) {
 	}
 	if len(images) != 2 {
 		t.Errorf("expected 2 images from 2 folders, got %d", len(images))
+	}
+}
+
+func scanTestPNG() []byte {
+	return []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE,
+		0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54,
+		0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00,
+		0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59, 0xE7,
+		0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+		0xAE, 0x42, 0x60, 0x82,
+	}
+}
+
+func TestScanFolder_KnownImagesSkipsUnchanged(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, f := range []string{"a.png", "b.png"} {
+		if err := os.WriteFile(filepath.Join(tmpDir, f), scanTestPNG(), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := NewScanner().ScanFolder(tmpDir)
+	if err != nil {
+		t.Fatalf("first scan failed: %v", err)
+	}
+	if len(first) != 2 {
+		t.Fatalf("expected 2 images, got %d", len(first))
+	}
+
+	known := make(map[string]*models.ImageInfo, len(first))
+	for _, img := range first {
+		known[img.Path] = img
+	}
+
+	second, err := NewScanner(WithKnownImages(known)).ScanFolder(tmpDir)
+	if err != nil {
+		t.Fatalf("second scan failed: %v", err)
+	}
+	if len(second) != 2 {
+		t.Fatalf("expected 2 images, got %d", len(second))
+	}
+	for _, img := range second {
+		if known[img.Path] != img {
+			t.Errorf("%s was re-hashed despite being unchanged", img.Path)
+		}
+	}
+}
+
+func TestScanFolder_KnownImagesRehashesChanged(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "a.png")
+	if err := os.WriteFile(path, scanTestPNG(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := NewScanner().ScanFolder(tmpDir)
+	if err != nil {
+		t.Fatalf("first scan failed: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(first))
+	}
+
+	known := map[string]*models.ImageInfo{first[0].Path: first[0]}
+
+	// Change the modification time; the cached entry must be invalidated.
+	newTime := first[0].ModTime.Add(2 * time.Second)
+	if err := os.Chtimes(path, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := NewScanner(WithKnownImages(known)).ScanFolder(tmpDir)
+	if err != nil {
+		t.Fatalf("second scan failed: %v", err)
+	}
+	if len(second) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(second))
+	}
+	if second[0] == first[0] {
+		t.Error("changed file must be re-hashed, not served from cache")
+	}
+	if !second[0].ModTime.Equal(newTime) {
+		t.Errorf("re-hashed ModTime = %v, want %v", second[0].ModTime, newTime)
 	}
 }

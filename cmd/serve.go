@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	servePort    int
-	serveTimeout time.Duration
+	servePort      int
+	serveTimeout   time.Duration
 	serveNoBrowser bool
 )
 
